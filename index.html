@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高级图片混淆与资源管理器</title>
+    <style>
+        :root {
+            --primary-color: #3b82f6;
+            --primary-hover: #2563eb;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-sub: #64748b;
+            --border-color: #e2e8f0;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --radius: 12px;
+            --header-height: 50px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; outline: none; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        header { text-align: center; margin-bottom: 20px; max-width: 800px; }
+        h1 { font-size: 1.5rem; margin-bottom: 8px; font-weight: 700; color: var(--text-main); }
+        p.subtitle { color: var(--text-sub); font-size: 0.9rem; line-height: 1.4; }
+
+        .app-container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            width: 100%;
+            max-width: 1400px;
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            height: 85vh;
+        }
+
+        /* Sidebar (Controls) */
+        .sidebar {
+            padding: 20px;
+            background: #f1f5f9;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+            color: var(--text-sub); font-weight: 700; margin-bottom: 8px;
+            border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;
+        }
+
+        /* Upload Area */
+        .upload-area {
+            border: 2px dashed var(--border-color); border-radius: 8px;
+            padding: 20px 10px; text-align: center; cursor: pointer;
+            transition: all 0.2s; background: white; position: relative;
+        }
+        .upload-area:hover, .upload-area.drag-over { border-color: var(--primary-color); background: #eff6ff; }
+        .upload-area input {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; cursor: pointer;
+        }
+        .upload-icon { font-size: 24px; margin-bottom: 8px; color: var(--primary-color); }
+        .upload-text { font-size: 0.85rem; color: var(--text-sub); line-height: 1.4; }
+
+        /* Buttons */
+        .btn {
+            width: 100%; padding: 10px; border: none; border-radius: 8px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s; font-size: 0.9rem;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        }
+        .btn:active { transform: translateY(1px); }
+        .btn-primary { background: var(--primary-color); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-secondary { background: white; border: 1px solid var(--border-color); color: var(--text-main); }
+        .btn-secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Offset Controls */
+        .offset-controls {
+            background: white; padding: 12px; border-radius: 8px;
+            border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px;
+        }
+        .offset-row { display: flex; align-items: center; gap: 8px; }
+        input[type="range"] { flex: 1; cursor: pointer; accent-color: var(--primary-color); }
+        input[type="number"] {
+            width: 70px; padding: 6px; border: 1px solid var(--border-color);
+            border-radius: 6px; font-size: 0.5rem; text-align: center;
+        }
+        .offset-value-text { font-size: 0.7rem; color: var(--text-sub); text-align: right; }
+
+        /* Status */
+        .status-bar { margin-top: auto; padding: 10px; background: #334155; color: white; border-radius: 6px; font-size: 0.8rem; text-align: center; }
+
+        /* Right Side Content Area */
+        .content-area {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            background-color: #e2e8f0;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        /* Top Toolbar / Toggle Bar */
+        .view-toolbar {
+            height: var(--header-height);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(8px);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            justify-content: space-between;
+            z-index: 10;
+        }
+
+        .toggle-group {
+            display: flex;
+            background: #e2e8f0;
+            padding: 4px;
+            border-radius: 8px;
+        }
+
+        .toggle-btn {
+            padding: 6px 16px;
+            border: none;
+            background: transparent;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-sub);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .toggle-btn.active {
+            background: white;
+            color: var(--primary-color);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .toggle-btn:hover:not(.active) { color: var(--text-main); }
+
+        /* View Layers */
+        .view-layer {
+            position: absolute;
+            top: var(--header-height);
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: none;
+            flex-direction: column;
+            padding: 20px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .view-layer.active-view { display: flex; }
+
+        /* Main Image View */
+        .image-wrapper {
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            position: relative;
+        }
+        .image-wrapper.drag-over-main {
+            box-shadow: inset 0 0 0 4px var(--primary-color);
+            background: rgba(59, 130, 246, 0.1);
+        }
+        .image-wrapper img {
+            max-width: 100%; max-height: 100%;
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.2);
+            border-radius: 4px;
+            object-fit: contain;
+            pointer-events: none;
+        }
+
+        /* Waterfall View */
+        .waterfall-container {
+            column-count: 4;
+            column-gap: 15px;
+            width: 100%;
+            padding-bottom: 40px;
+        }
+        .waterfall-container.drag-over-waterfall {
+            background: rgba(59, 130, 246, 0.05);
+            border-radius: 8px;
+        }
+
+        @media (max-width: 1200px) { .waterfall-container { column-count: 3; } }
+        @media (max-width: 800px) { .waterfall-container { column-count: 2; } }
+        @media (max-width: 500px) { .waterfall-container { column-count: 1; } }
+
+        .waterfall-card {
+            break-inside: avoid;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+        }
+        .waterfall-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            border-color: var(--primary-color);
+        }
+
+        .waterfall-media {
+            width: 100%;
+            display: block;
+            background: #f1f5f9;
+        }
+        .waterfall-media img, .waterfall-media video {
+            width: 100%; height: auto; display: block;
+        }
+
+        .waterfall-info {
+            padding: 10px;
+            background: white;
+        }
+        .waterfall-filename {
+            font-size: 0.8rem; font-weight: 600; color: var(--text-main);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .waterfall-type {
+            font-size: 0.7rem; color: var(--text-sub); margin-top: 2px;
+        }
+
+        .card-delete-btn {
+            position: absolute; top: 5px; right: 5px;
+            background: rgba(0,0,0,0.6); color: white;
+            border: none; width: 24px; height: 24px; border-radius: 50%;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.2s;
+        }
+        .waterfall-card:hover .card-delete-btn { opacity: 1; }
+        .card-delete-btn:hover { background: #ef4444; }
+
+        /* Empty State */
+        .empty-state {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100%; color: var(--text-sub);
+        }
+        .empty-icon { font-size: 48px; margin-bottom: 10px; opacity: 0.5; }
+
+        /* Loading */
+        .loading-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8); z-index: 50;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        .loading-overlay.active { opacity: 1; pointer-events: all; }
+        .spinner { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top: 3px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9); z-index: 2000;
+            display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s;
+        }
+        .modal-overlay.active { display: flex; opacity: 1; }
+        
+        .modal-content { 
+            width: 100%; height: 100%; 
+            position: relative; display: flex; align-items: center; justify-content: center; 
+            background: black; overflow: hidden; 
+        }
+        
+        /* Click-to-close layer (z-index: 1, covers everything) */
+        .modal-click-close-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 1;
+            /* Clicking this closes the modal */
+        }
+
+        .modal-body { 
+            width: 100%; height: 100%; 
+            overflow: hidden; display: flex; align-items: center; justify-content: center; 
+            pointer-events: none; /* Let clicks pass to the close layer */
+            z-index: 2;
+        }
+        /* Re-enable pointer events for media content */
+        .modal-body img, .modal-body video, .modal-body pre {
+            pointer-events: auto;
+            max-width: 90%; max-height: 90%; object-fit: contain;
+        }
+        .modal-body img, .modal-body video { box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        .modal-body pre {
+            color: #ccc; font-size: 1rem; overflow: auto; white-space: pre-wrap; word-break: break-all; 
+            background: #111; padding: 20px; border-radius: 8px;
+        }
+
+        /* Modal Navigation Buttons */
+        .modal-nav-btn {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            font-size: 24px; width: 50px; height: 50px; border-radius: 50%;
+            cursor: pointer; z-index: 20; display: flex; align-items: center; justify-content: center;
+            transition: all 0.3s; opacity: 0;
+        }
+        .modal-nav-btn:hover { background: rgba(255, 255, 255, 0.3); transform: translateY(-50%) scale(1.1); }
+        .modal-nav-btn:active { transform: translateY(-50%) scale(0.95); }
+        .modal-content:hover .modal-nav-btn { opacity: 1; }
+        #modal-prev { left: 20px; }
+        #modal-next { right: 20px; }
+        
+        .modal-close { 
+            position: absolute; top: 20px; right: 30px; 
+            background: rgba(0,0,0,0.5); border: none; width: 44px; height: 44px; border-radius: 50%; 
+            color: white; font-size: 24px; cursor: pointer; z-index: 30; display: flex; align-items: center; justify-content: center; 
+            transition: background 0.2s; 
+        }
+        .modal-close:hover { background: rgba(255,255,255,0.2); transform: rotate(90deg); }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .app-container { grid-template-columns: 1fr; height: auto; }
+            .sidebar { border-right: none; border-bottom: 1px solid var(--border-color); }
+            .content-area { height: 500px; }
+            .modal-nav-btn { width: 40px; height: 40px; font-size: 18px; }
+            #modal-prev { left: 10px; }
+            #modal-next { right: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>高级图片混淆与资源管理器</h1>
+        <p class="subtitle">Gilbert 像素混淆 | 拖拽式全屏瀑布流 | 智能资源打包</p>
+    </header>
+
+    <main class="app-container">
+        <!-- Sidebar Controls -->
+        <aside class="sidebar">
+            <!-- 1. Main File -->
+            <div>
+                <div class="section-title">1. 主文件 (图片/视频)</div>
+                <div class="upload-area" id="drop-zone">
+                    <input type="file" id="file-input" accept="image/*,video/*">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">拖入主图片或视频<br><span style="font-size:0.75em; opacity:0.7">视频自动取第一帧</span></div>
+                </div>
+            </div>
+
+            <!-- 2. Offset Control -->
+            <div>
+                <div class="section-title">2. 偏移设置</div>
+                <div class="offset-controls">
+                    <div class="offset-row">
+                        <input type="range" id="offset-slider" min="0" max="100" value="62" disabled>
+                        <input type="number" id="offset-input" value="0" disabled>
+                    </div>
+                    <div class="offset-value-text" id="offset-display">计算中...</div>
+                </div>
+            </div>
+
+            <!-- 3. Operations -->
+            <div>
+                <div class="section-title">3. 核心操作</div>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button id="btn-encrypt" class="btn btn-primary" disabled>🔒 混淆图片</button>
+                    <button id="btn-decrypt" class="btn btn-secondary" disabled>🔓 还原图片</button>
+                    <button id="btn-download" class="btn btn-secondary" disabled>⬇️ 下载结果 (含资源)</button>
+                </div>
+            </div>
+
+            <!-- 4. Add Resource Button -->
+            <div>
+                <div class="section-title">4. 资源管理</div>
+                <label class="btn btn-secondary" style="position: relative;">
+                    <span>+ 上传资源文件</span>
+                    <input type="file" id="attachment-input" multiple style="position: absolute; inset: 0; opacity: 0; cursor: pointer;">
+                </label>
+            </div>
+
+            <div class="status-bar" id="status-bar">
+                <span>就绪</span>
+            </div>
+        </aside>
+
+        <!-- Right Content Area -->
+        <section class="content-area">
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" id="loading">
+                <div class="spinner"></div>
+                <p style="margin-top: 10px; color: #64748b; font-weight: 500;">处理中...</p>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="view-toolbar">
+                <div class="toggle-group">
+                    <button class="toggle-btn active" data-target="view-main">主图片预览</button>
+                    <button class="toggle-btn" data-target="view-resources">资源瀑布流</button>
+                </div>
+            </div>
+
+            <!-- View 1: Main Image -->
+            <div id="view-main" class="view-layer active-view">
+                <div class="image-wrapper" id="img-wrapper">
+                    <img id="display-img" alt="Main Image" style="display: none;">
+                    <div id="main-placeholder" class="empty-state">
+                        <div class="empty-icon">🖼️</div>
+                        <div>拖入图片或视频到此处</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View 2: Resources Waterfall -->
+            <div id="view-resources" class="view-layer">
+                <div id="waterfall-container" class="waterfall-container">
+                    <!-- Dynamic Content -->
+                </div>
+                <div id="res-placeholder" class="empty-state">
+                    <div class="empty-icon">📂</div>
+                    <div>拖拽文件到此处添加资源<br>或使用左侧 "上传资源文件"</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close" id="modal-close">&times;</button>
+            <div class="modal-click-close-layer" id="modal-click-close-layer" title="点击关闭"></div>
+            <button class="modal-nav-btn" id="modal-prev">&lt;</button>
+            <button class="modal-nav-btn" id="modal-next">&gt;</button>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * PNG Information Handler
+         */
+        class PngInfoHandler {
+            static crc32(data) {
+                const table = new Uint32Array(256);
+                for (let i = 0; i < 256; i++) {
+                    let c = i;
+                    for (let j = 0; j < 8; j++) { c = (c & 1) ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; }
+                    table[i] = c;
+                }
+                let crc = 0xFFFFFFFF;
+                for (let i = 0; i < data.length; i++) { crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8); }
+                return (crc ^ 0xFFFFFFFF) >>> 0;
+            }
+            static createTextChunk(keyword, text) {
+                const keywordBytes = new TextEncoder().encode(keyword);
+                const textBytes = new TextEncoder().encode(text);
+                const content = new Uint8Array(keywordBytes.length + 1 + textBytes.length);
+                content.set(keywordBytes, 0); content[keywordBytes.length] = 0; content.set(textBytes, keywordBytes.length + 1);
+                const length = content.length;
+                const type = new Uint8Array([116, 69, 88, 116]);
+                const chunk = new Uint8Array(4 + 4 + content.length);
+                const dv = new DataView(chunk.buffer);
+                dv.setUint32(0, length, false); chunk.set(type, 4); chunk.set(content, 8);
+                const crcData = new Uint8Array(4 + content.length);
+                crcData.set(type, 0); crcData.set(content, 4);
+                const crc = PngInfoHandler.crc32(crcData);
+                const result = new Uint8Array(chunk.length + 4);
+                result.set(chunk, 0); const crcDv = new DataView(result.buffer);
+                crcDv.setUint32(chunk.length, crc, false);
+                return result;
+            }
+            static readInfo(data) {
+                const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+                const pngSignature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+                for (let i = 0; i < 8; i++) if (data[i] !== pngSignature[i]) return;
+                const tEXt = 0x74455874;
+                let pos = 33;
+                let foundInfo = [];
+                while (pos < data.length - 8) {
+                    const len = view.getUint32(pos, false); pos += 4;
+                    const tag = view.getUint32(pos, false); pos += 4;
+                    if (tag != tEXt) { pos += len + 4; continue; }
+                    const textData = new Uint8Array(data.buffer, data.byteOffset + pos, len);
+                    let nullIndex = -1;
+                    for (let i = 0; i < textData.length; i++) { if (textData[i] === 0) { nullIndex = i; break; } }
+                    if (nullIndex !== -1) {
+                        const keywordArray = textData.slice(0, nullIndex);
+                        const textArray = textData.slice(nullIndex + 1);
+                        const keyword = new TextDecoder().decode(keywordArray);
+                        const text = new TextDecoder().decode(textArray);
+                        if (['image', 'video', 'object'].includes(keyword)) foundInfo.push({ keyword, text });
+                    }
+                    pos += len + 4;
+                }
+                return foundInfo.length > 0 ? foundInfo : null;
+            }
+            static addMultipleInfo(pngData, attachments) {
+                let currentPng = pngData;
+                const pngSignature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+                for (let i = 0; i < 8; i++) { if (currentPng[i] !== pngSignature[i]) throw new Error("无效的PNG文件"); }
+                
+                for (const attach of attachments) {
+                    const chunk = PngInfoHandler.createTextChunk(attach.keyword, attach.data);
+                    const view = new DataView(currentPng.buffer, currentPng.byteOffset, currentPng.byteLength);
+                    const ihdrLength = view.getUint32(8, false);
+                    const ihdrEndPos = 8 + 4 + 4 + ihdrLength + 4;
+                    
+                    let insertPos = ihdrEndPos; let pos = ihdrEndPos;
+                    while (pos < currentPng.length - 8) {
+                        const chunkLen = view.getUint32(pos, false);
+                        const chunkType = String.fromCharCode(currentPng[pos+4], currentPng[pos+5], currentPng[pos+6], currentPng[pos+7]);
+                        if (chunkType === 'IEND') { insertPos = pos; break; }
+                        if (chunkType === 'tEXt') { pos += 4 + 4 + chunkLen + 4; continue; }
+                        pos += 4 + 4 + chunkLen + 4;
+                    }
+                    const beforeInsert = currentPng.slice(0, insertPos);
+                    const afterInsert = currentPng.slice(insertPos);
+                    const result = new Uint8Array(beforeInsert.length + chunk.length + afterInsert.length);
+                    result.set(beforeInsert, 0); result.set(chunk, beforeInsert.length); result.set(afterInsert, beforeInsert.length + chunk.length);
+                    currentPng = result;
+                }
+                return currentPng;
+            }
+        }
+
+        function gilbert2d(width, height) {
+            const coordinates = [];
+            if (width >= height) { generate2d(0, 0, width, 0, 0, height, coordinates); } else { generate2d(0, 0, 0, height, width, 0, coordinates); }
+            return coordinates;
+        }
+        function generate2d(x, y, ax, ay, bx, by, coordinates) {
+            const w = Math.abs(ax + ay), h = Math.abs(bx + by);
+            const dax = Math.sign(ax), day = Math.sign(ay), dbx = Math.sign(bx), dby = Math.sign(by);
+            if (h === 1) { for (let i = 0; i < w; i++) { coordinates.push([x, y]); x += dax; y += day; } return; }
+            if (w === 1) { for (let i = 0; i < h; i++) { coordinates.push([x, y]); x += dbx; y += dby; } return; }
+            let ax2 = Math.floor(ax / 2), ay2 = Math.floor(ay / 2), bx2 = Math.floor(bx / 2), by2 = Math.floor(by / 2);
+            if (2 * w > 3 * h) {
+                if ((Math.abs(ax2 + ay2) % 2) && (w > 2)) { ax2 += dax; ay2 += day; }
+                generate2d(x, y, ax2, ay2, bx, by, coordinates);
+                generate2d(x + ax2, y + ay2, ax - ax2, ay - ay2, bx, by, coordinates);
+            } else {
+                if ((Math.abs(bx2 + by2) % 2) && (h > 2)) { bx2 += dbx; by2 += dby; }
+                generate2d(x, y, bx2, by2, ax2, ay2, coordinates);
+                generate2d(x + bx2, y + by2, ax, ay, bx - bx2, by - by2, coordinates);
+                generate2d(x + (ax - dax) + (bx2 - dbx), y + (ay - day) + (by2 - dby),
+                    -bx2, -by2, -(ax - ax2), -(ay - ay2), coordinates);
+            }
+        }
+
+        // DOM Elements
+        const fileInput = document.getElementById('file-input');
+        const attachInput = document.getElementById('attachment-input');
+        const dropZone = document.getElementById('drop-zone');
+        const displayImg = document.getElementById('display-img');
+        const mainPlaceholder = document.getElementById('main-placeholder');
+        const imgWrapper = document.getElementById('img-wrapper'); 
+        
+        const btnEncrypt = document.getElementById('btn-encrypt');
+        const btnDecrypt = document.getElementById('btn-decrypt');
+        const btnDownload = document.getElementById('btn-download');
+        
+        const offsetSlider = document.getElementById('offset-slider');
+        const offsetInput = document.getElementById('offset-input');
+        const offsetDisplay = document.getElementById('offset-display');
+        const statusBar = document.getElementById('status-bar');
+        const loadingOverlay = document.getElementById('loading');
+        
+        const toggleBtns = document.querySelectorAll('.toggle-btn');
+        const viewMain = document.getElementById('view-main');
+        const viewResources = document.getElementById('view-resources');
+        const waterfallContainer = document.getElementById('waterfall-container');
+        const resPlaceholder = document.getElementById('res-placeholder');
+
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modalBody = document.getElementById('modal-body');
+        const modalClose = document.getElementById('modal-close');
+        const modalClickCloseLayer = document.getElementById('modal-click-close-layer');
+        const modalPrev = document.getElementById('modal-prev');
+        const modalNext = document.getElementById('modal-next');
+
+        // State
+        let currentCurve = null; let currentWidth = 0; let currentHeight = 0;
+        let currentAttachments = [];
+        let currentModalIndex = -1;
+
+        // Helpers
+        function setStatus(msg) { statusBar.querySelector('span').textContent = msg; }
+        function setLoading(isLoading) {
+            if (isLoading) loadingOverlay.classList.add('active');
+            else loadingOverlay.classList.remove('active');
+            btnEncrypt.disabled = isLoading || !displayImg.src;
+            btnDecrypt.disabled = isLoading || !displayImg.src;
+            // Download button is enabled if image exists, regardless of processing state
+            btnDownload.disabled = isLoading || !displayImg.src;
+        }
+
+        function updateOffsetFromSlider() {
+            const val = parseInt(offsetSlider.value); const total = currentWidth * currentHeight;
+            let offset;
+            if (val === 62) { offset = Math.round((Math.sqrt(5) - 1) / 2 * total); offsetDisplay.textContent = `默认 (黄金分割)`; }
+            else { offset = Math.floor((val/100) * total); offsetDisplay.textContent = `自定义 (${val}%)`; }
+            offsetInput.value = offset; return offset;
+        }
+        function updateOffsetFromInput() {
+            let val = parseInt(offsetInput.value); const total = currentWidth * currentHeight;
+            if(val<0) val=0; if(val>total) val=total; offsetInput.value=val;
+            const pct = (val/total)*100; offsetSlider.value = pct; offsetDisplay.textContent = `指定偏移: ${val}`;
+            return val;
+        }
+        offsetSlider.addEventListener('input', updateOffsetFromSlider);
+        offsetInput.addEventListener('change', updateOffsetFromInput);
+
+        // View Toggling
+        function switchView(viewName) {
+            toggleBtns.forEach(btn => {
+                if(btn.dataset.target === viewName) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+            
+            if(viewName === 'view-main') {
+                viewMain.classList.add('active-view');
+                viewResources.classList.remove('active-view');
+            } else {
+                viewMain.classList.remove('active-view');
+                viewResources.classList.add('active-view');
+            }
+        }
+        toggleBtns.forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.target)));
+
+        // Attachments Logic
+        function processAttachments(files) {
+            if(!files.length) return;
+            Array.from(files).forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const bytes = new Uint8Array(evt.target.result);
+                    let binary = ''; for(let i=0; i<bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                    const base64Data = btoa(binary);
+                    
+                    let type='object', keyword='object', mime=file.type || 'app/octet-stream';
+                    if(file.type.startsWith('image/')) { type='image'; keyword='image'; }
+                    else if(file.type.startsWith('video/')) { type='video'; keyword='video'; }
+                    else if(file.type.startsWith('text/')) { type='text'; }
+
+                    currentAttachments.push({ type, mime, data: base64Data, keyword, filename: file.name });
+                    renderWaterfall();
+                };
+                reader.readAsArrayBuffer(file);
+            });
+            setStatus(`正在添加 ${files.length} 个文件...`);
+        }
+
+        function deleteAttachment(index) {
+            currentAttachments.splice(index, 1);
+            renderWaterfall();
+        }
+
+        function renderWaterfall() {
+            waterfallContainer.innerHTML = '';
+            if(currentAttachments.length === 0) {
+                resPlaceholder.style.display = 'flex';
+                setStatus('资源列表为空');
+                return;
+            }
+            resPlaceholder.style.display = 'none';
+            setStatus(`当前资源数: ${currentAttachments.length}`);
+
+            currentAttachments.forEach((attach, idx) => {
+                const card = document.createElement('div');
+                card.className = 'waterfall-card';
+                
+                const mediaDiv = document.createElement('div');
+                mediaDiv.className = 'waterfall-media';
+                mediaDiv.onclick = (e) => { if(!e.target.classList.contains('card-delete-btn')) openModal(idx); };
+
+                if(attach.type === 'image') {
+                    const img = document.createElement('img'); 
+                    img.src = `data:${attach.mime};base64,${attach.data}`;
+                    mediaDiv.appendChild(img);
+                } else if (attach.type === 'video') {
+                    const video = document.createElement('video'); 
+                    video.src = `data:${attach.mime};base64,${attach.data}`;
+                    video.muted = true;
+                    mediaDiv.appendChild(video);
+                } else {
+                    const icon = document.createElement('div');
+                    icon.style.height = '150px'; icon.style.display = 'flex'; 
+                    icon.style.alignItems = 'center'; icon.style.justifyContent = 'center';
+                    icon.style.color = '#94a3b8'; icon.style.fontSize = '2rem';
+                    icon.textContent = '📄';
+                    mediaDiv.appendChild(icon);
+                }
+
+                const info = document.createElement('div');
+                info.className = 'waterfall-info';
+                const name = document.createElement('div');
+                name.className = 'waterfall-filename';
+                name.textContent = attach.filename;
+                const type = document.createElement('div');
+                type.className = 'waterfall-type';
+                type.textContent = attach.type.toUpperCase();
+                info.append(name, type);
+
+                const delBtn = document.createElement('button');
+                delBtn.className = 'card-delete-btn'; delBtn.innerHTML = '&times;';
+                delBtn.onclick = (e) => { e.stopPropagation(); deleteAttachment(idx); };
+
+                card.append(mediaDiv, info, delBtn);
+                waterfallContainer.appendChild(card);
+            });
+        }
+
+        attachInput.addEventListener('change', (e) => {
+            processAttachments(e.target.files);
+            attachInput.value = ''; 
+            switchView('view-resources');
+        });
+
+        // --- DRAG AND DROP ENHANCEMENTS ---
+
+        // Main Preview Drop (Main File)
+        imgWrapper.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            imgWrapper.classList.add('drag-over-main');
+        });
+        imgWrapper.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            imgWrapper.classList.remove('drag-over-main');
+        });
+        imgWrapper.addEventListener('drop', (e) => {
+            e.preventDefault();
+            imgWrapper.classList.remove('drag-over-main');
+            if(e.dataTransfer.files.length) {
+                setLoading(true);
+                handleMainFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        // Waterfall Drop (Resources)
+        waterfallContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            waterfallContainer.classList.add('drag-over-waterfall');
+        });
+        waterfallContainer.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            waterfallContainer.classList.remove('drag-over-waterfall');
+        });
+        waterfallContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            waterfallContainer.classList.remove('drag-over-waterfall');
+            if(e.dataTransfer.files.length) {
+                processAttachments(e.dataTransfer.files);
+            }
+        });
+
+        // Main File Logic
+        function handleMainFile(file) {
+            if(!file) return;
+            if(file.type.startsWith('video/')) {
+                setStatus('提取视频帧...');
+                const video = document.createElement('video');
+                video.src = URL.createObjectURL(file);
+                video.muted = true; video.crossOrigin = 'anonymous';
+                video.onloadeddata = () => { video.currentTime = 0.1; };
+                video.onseeked = () => {
+                    const cvs = document.createElement('canvas');
+                    cvs.width = video.videoWidth || 640; cvs.height = video.videoHeight || 360;
+                    const ctx = cvs.getContext('2d'); ctx.drawImage(video,0,0);
+                    loadMainImage(cvs.toDataURL('image/jpeg', 0.9));
+                    currentAttachments = [];
+                    processAttachments([file]);
+                    URL.revokeObjectURL(video.src);
+                };
+                video.load();
+            } else if(file.type.startsWith('image/')) {
+                const r = new FileReader();
+                r.onload = (e) => loadMainImage(e.target.result, file);
+                r.readAsDataURL(file);
+            }
+        }
+
+        function loadMainImage(url, fileObj=null) {
+            const img = new Image();
+            img.onload = () => {
+                currentWidth = img.width; currentHeight = img.height;
+                setTimeout(() => {
+                    currentCurve = gilbert2d(currentWidth, currentHeight);
+                    offsetSlider.max = currentWidth*currentHeight; offsetInput.max = offsetSlider.max;
+                    updateOffsetFromSlider();
+                    displayImg.src = url; displayImg.style.display = 'block'; mainPlaceholder.style.display = 'none';
+                    btnEncrypt.disabled = false; btnDecrypt.disabled = false; offsetSlider.disabled = false; offsetInput.disabled = false;
+
+                    if(fileObj && fileObj.type === 'image/png') {
+                        const r2 = new FileReader();
+                        r2.onload = (evt) => {
+                            const infos = PngInfoHandler.readInfo(new Uint8Array(evt.target.result));
+                            if(infos) {
+                                currentAttachments = [];
+                                infos.forEach(info => {
+                                    let type='text', mime='text/plain';
+                                    if(info.keyword==='image'){type='image'; mime='image/png';}
+                                    else if(info.keyword==='video'){type='video'; mime='video/mp4';}
+                                    currentAttachments.push({type, mime, data: info.text, keyword: info.keyword, filename:'embedded'});
+                                });
+                                renderWaterfall();
+                                setStatus('已加载嵌入资源');
+                            } else { currentAttachments=[]; renderWaterfall(); }
+                        };
+                        r2.readAsArrayBuffer(fileObj);
+                    }
+                    setLoading(false);
+                }, 50);
+            };
+            img.src = url;
+        }
+
+        // Core Process (Encrypt/Decrypt) - Updates displayImg.src
+        function processImage(mode) {
+            if(!displayImg.src) return;
+            setLoading(true);
+            setTimeout(() => {
+                try {
+                    const img = displayImg;
+                    const cvs = document.createElement('canvas');
+                    const w = cvs.width = img.naturalWidth; const h = cvs.height = img.naturalHeight;
+                    const ctx = cvs.getContext('2d'); ctx.drawImage(img,0,0);
+                    const imgData = ctx.getImageData(0,0,w,h);
+                    const newImgData = new ImageData(w,h);
+
+                    if(w !== currentWidth || h !== currentHeight) { currentWidth = w; currentHeight = h; currentCurve = gilbert2d(w,h); offsetSlider.max = w*h; offsetInput.max = w*h; }
+
+                    const curve = currentCurve; const total = w*h; const offset = parseInt(offsetInput.value);
+                    const src = imgData.data; const dst = newImgData.data;
+
+                    if(mode === 'encrypt') {
+                        for(let i=0;i<total;i++) {
+                            const oldP = curve[i]; const newP = curve[(i+offset)%total];
+                            const sIdx = (oldP[0]+oldP[1]*w)*4; const dIdx = (newP[0]+newP[1]*w)*4;
+                            dst[dIdx]=src[sIdx]; dst[dIdx+1]=src[sIdx+1]; dst[dIdx+2]=src[sIdx+2]; dst[dIdx+3]=src[sIdx+3];
+                        }
+                    } else {
+                        for(let i=0;i<total;i++) {
+                            const oldP = curve[i]; const newP = curve[(i+offset)%total];
+                            const sIdx = (newP[0]+newP[1]*w)*4; const dIdx = (oldP[0]+oldP[1]*w)*4;
+                            dst[dIdx]=src[sIdx]; dst[dIdx+1]=src[sIdx+1]; dst[dIdx+2]=src[sIdx+2]; dst[dIdx+3]=src[sIdx+3];
+                        }
+                    }
+                    ctx.putImageData(newImgData, 0, 0);
+                    // Note: We don't embed resources here to keep preview clean/fast, embedding happens at download.
+                    cvs.toBlob(b => {
+                        const url = URL.createObjectURL(b);
+                        if(displayImg.src.startsWith('blob:')) URL.revokeObjectURL(displayImg.src);
+                        displayImg.src = url;
+                        setStatus('处理完成'); setLoading(false);
+                    }, 'image/png');
+                } catch(e) { console.error(e); setStatus('错误: '+e.message); setLoading(false); }
+            }, 50);
+        }
+
+        // Smart Download Logic
+        btnDownload.onclick = () => {
+            if(!displayImg.src) return;
+            setLoading(true);
+            setStatus('正在打包资源并下载...');
+            
+            const img = displayImg;
+            const cvs = document.createElement('canvas');
+            const w = cvs.width = img.naturalWidth || img.width;
+            const h = cvs.height = img.naturalHeight || img.height;
+            const ctx = cvs.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+
+            // Get base PNG data
+            cvs.toBlob(pngBlob => {
+                const r = new FileReader();
+                r.onload = () => {
+                    let bytes = new Uint8Array(r.result);
+                    // Embed resources if any
+                    if(currentAttachments.length > 0) {
+                        bytes = PngInfoHandler.addMultipleInfo(bytes, currentAttachments);
+                    }
+                    const finalBlob = new Blob([bytes], {type:'image/png'});
+                    const url = URL.createObjectURL(finalBlob);
+                    
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'output_with_resources.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    setLoading(false);
+                    setStatus('已下载 (含 ' + currentAttachments.length + ' 个资源)');
+                };
+                r.readAsArrayBuffer(pngBlob);
+            }, 'image/png');
+        };
+
+        // --- MODAL LOGIC ---
+        
+        function updateModalNavVisibility() {
+            if(currentAttachments.length > 1) {
+                modalPrev.style.display = 'flex';
+                modalNext.style.display = 'flex';
+            } else {
+                modalPrev.style.display = 'none';
+                modalNext.style.display = 'none';
+            }
+        }
+
+        function renderModalContent(idx) {
+            if(!currentAttachments[idx]) return closeModal();
+            const a = currentAttachments[idx]; 
+            const src = `data:${a.mime};base64,${a.data}`; 
+            modalBody.innerHTML = '';
+            
+            let element;
+            if(a.type === 'image') { 
+                element = document.createElement('img'); element.src = src; 
+            } else if(a.type === 'video') { 
+                element = document.createElement('video'); element.src = src; element.controls = true; element.autoplay = true; 
+            } else { 
+                element = document.createElement('pre'); try{element.textContent=atob(a.data);}catch(e){element.textContent=a.data;} 
+            }
+            modalBody.appendChild(element);
+            currentModalIndex = idx;
+        }
+
+        function openModal(idx) {
+            if(!currentAttachments[idx]) return;
+            currentModalIndex = idx;
+            updateModalNavVisibility();
+            renderModalContent(idx);
+            modalOverlay.classList.add('active');
+        }
+
+        function closeModal() { 
+            modalOverlay.classList.remove('active'); 
+            modalBody.innerHTML = ''; // Stop videos
+        }
+
+        // Modal Event Listeners
+        modalClose.onclick = closeModal;
+        
+        // The specific "click background to close" layer
+        modalClickCloseLayer.onclick = closeModal;
+        
+        modalPrev.onclick = (e) => {
+            e.stopPropagation();
+            if(currentAttachments.length <= 1) return;
+            let nextIdx = currentModalIndex - 1;
+            if(nextIdx < 0) nextIdx = currentAttachments.length - 1;
+            renderModalContent(nextIdx);
+        };
+
+        modalNext.onclick = (e) => {
+            e.stopPropagation();
+            if(currentAttachments.length <= 1) return;
+            let nextIdx = currentModalIndex + 1;
+            if(nextIdx >= currentAttachments.length) nextIdx = 0;
+            renderModalContent(nextIdx);
+        };
+
+        document.addEventListener('keydown', (e) => {
+            if(!modalOverlay.classList.contains('active')) return;
+            if(e.key === 'Escape') closeModal();
+            if(e.key === 'ArrowLeft') modalPrev.click();
+            if(e.key === 'ArrowRight') modalNext.click();
+        });
+
+
+        // Sidebar Drag Drop
+        const sidebar = document.querySelector('.sidebar');
+        sidebar.ondragover=e=>{ e.preventDefault(); };
+        sidebar.ondrop=e=>{
+            e.preventDefault();
+            if(e.dataTransfer.files.length) processAttachments(e.dataTransfer.files);
+            switchView('view-resources');
+        };
+
+        fileInput.addEventListener('change', e => { setLoading(true); handleMainFile(e.target.files[0]); });
+        dropZone.ondragover=e=>{e.preventDefault(); dropZone.classList.add('drag-over');};
+        dropZone.ondragleave=e=>{e.preventDefault(); dropZone.classList.remove('drag-over');};
+        dropZone.ondrop=e=>{e.preventDefault(); dropZone.classList.remove('drag-over'); if(e.dataTransfer.files.length) { setLoading(true); handleMainFile(e.dataTransfer.files[0]); }};
+        btnEncrypt.onclick = () => processImage('encrypt');
+        btnDecrypt.onclick = () => processImage('decrypt');
+
+    </script>
+</body>
+</html>
