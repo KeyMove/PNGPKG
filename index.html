@@ -808,7 +808,7 @@
                     displayImg.src = url; displayImg.style.display = 'block'; mainPlaceholder.style.display = 'none';
                     btnEncrypt.disabled = false; btnDecrypt.disabled = false; offsetSlider.disabled = false; offsetInput.disabled = false;
 
-                    if(fileObj && fileObj.type === 'image/png') {
+                    if(fileObj && fileObj.type.includes('image/')) {
                         const r2 = new FileReader();
                         r2.onload = (evt) => {
                             const infos = PngInfoHandler.readInfo(new Uint8Array(evt.target.result));
