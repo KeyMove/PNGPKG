@@ -206,7 +206,7 @@
             column-count: 4;
             column-gap: 15px;
             width: 100%;
-            height: 100%;
+            min-height: 100%;
             padding-bottom: 40px;
         }
         .waterfall-container.drag-over-waterfall {
@@ -218,6 +218,15 @@
         @media (max-width: 1200px) { .waterfall-container { column-count: 3; } }
         @media (max-width: 800px) { .waterfall-container { column-count: 2; } }
         @media (max-width: 500px) { .waterfall-container { column-count: 1; } }
+        /* Mobile */
+        @media (max-width: 768px) {
+            .app-container { grid-template-columns: 1fr; height: auto; }
+            .sidebar { border-right: none; border-bottom: 1px solid var(--border-color); }
+            .content-area { height: auto; min-height: 400px; }
+            .modal-nav-btn { width: 40px; height: 40px; font-size: 18px; }
+            #modal-prev { left: 10px; }
+            #modal-next { right: 10px; }
+        }
 
         .waterfall-card {
             break-inside: avoid;
@@ -270,8 +279,16 @@
 
         /* Empty State */
         .empty-state {
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            height: 100%; color: var(--text-sub);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            /* 保留 flex 用于图标/文本对齐 */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-sub);
         }
         .empty-icon { font-size: 48px; margin-bottom: 10px; opacity: 0.5; }
 
@@ -1344,13 +1361,21 @@
 
             const step = guideSteps[currentStep];
             const element = step.element;
+            
+            // --- 修复 1：获取当前页面的滚动偏移量 ---
+            const scrollTop = window.scrollY || document.documentElement.scrollTop;
+            const scrollLeft = window.scrollX || document.documentElement.scrollLeft;
+
             const rect = element.getBoundingClientRect();
 
             // 创建高亮区域
             const highlight = document.createElement('div');
             highlight.className = 'highlight-area';
-            highlight.style.left = rect.left + 'px';
-            highlight.style.top = rect.top + 'px';
+            
+            // --- 修复 2：在设置 top/left 时加上滚动偏移量 ---
+            // 这样 absolute 定位的位置才是相对于文档的正确位置
+            highlight.style.left = (rect.left + scrollLeft) + 'px';
+            highlight.style.top = (rect.top + scrollTop) + 'px';
             highlight.style.width = rect.width + 'px';
             highlight.style.height = rect.height + 'px';
             document.body.appendChild(highlight);
@@ -1389,22 +1414,32 @@
             const tooltipWidth = 300; // 固定宽度
             const tooltipHeight = tooltip.offsetHeight;
             const spacing = 15; // 高亮区域和提示框的间距
+
+            // --- 修复 3：修正提示框的定位逻辑 ---
             
+            // 先计算相对于视口的理想 Left 位置 (确保不出屏幕左右边界)
+            // rect.left 是相对于视口的，所以这里先算视口内的相对位置
+            let visualLeft = rect.left + rect.width / 2 - tooltipWidth / 2;
+            
+            // 限制在视口范围内 (左右各留10px边距)
+            visualLeft = Math.max(10, Math.min(visualLeft, window.innerWidth - tooltipWidth - 10));
+            
+            // 最终转换为文档坐标 (加上 scrollLeft)
+            tooltip.style.left = (visualLeft + scrollLeft) + 'px';
+
             if (step.position === 'bottom') {
-                // 提示框在下方
-                tooltip.style.left = Math.max(10, Math.min(
-                    rect.left + rect.width / 2 - tooltipWidth / 2,
-                    window.innerWidth - tooltipWidth - 10
-                )) + 'px';
-                tooltip.style.top = rect.bottom + spacing + 'px';
+                // 提示框在下方：元素的 rect.bottom (视口) + 间距 + 滚动偏移
+                tooltip.style.top = (rect.bottom + spacing + scrollTop) + 'px';
             } else {
-                // 提示框在上方
-                tooltip.style.left = Math.max(10, Math.min(
-                    rect.left + rect.width / 2 - tooltipWidth / 2,
-                    window.innerWidth - tooltipWidth - 10
-                )) + 'px';
-                tooltip.style.top = Math.max(10, rect.top - tooltipHeight - spacing) + 'px';
+                // 提示框在上方：元素的 rect.top (视口) - 高度 - 间距 + 滚动偏移
+                // 注意：Math.max 是为了防止上方空间不足导致跑到屏幕最顶端上方，这里也要加上 scrollTop
+                let visualTop = Math.max(10, rect.top - tooltipHeight - spacing);
+                tooltip.style.top = (visualTop + scrollTop) + 'px';
             }
+            
+            // --- 可选优化：确保元素在视口内 ---
+            // 如果元素不在当前视口，滚动页面将其展示出来（建议加上）
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
             
             // 添加按钮事件监听器
             const addButtonListeners = () => {
@@ -1436,7 +1471,6 @@
                         document.body.removeChild(highlight);
                         document.body.removeChild(tooltip);
                         currentStep = guideSteps.length;
-                        // 引导结束逻辑
                     });
                 }
                 
@@ -1445,26 +1479,23 @@
                         document.body.removeChild(highlight);
                         document.body.removeChild(tooltip);
                         currentStep = guideSteps.length;
-                        // 引导结束逻辑
                     });
                 }
             };
             
-            // 确保DOM渲染后添加事件监听
             setTimeout(addButtonListeners, 0);
         }
 
-
         function floatball(path='interface.jpg'){
             const css=`.floating-ball {
-                width: 100px;
+                width: 30px;
                 height: 30px;
                 background-color: #e0f2fe;
                 color: #0369a1;
                 border-radius: 15px;
                 position: fixed;
-                top: 30px;
-                right: 30px;
+                top: 0px;
+                right: 0px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -1480,7 +1511,7 @@
             document.getElementsByTagName('head')[0].appendChild(style);
             let div=document.createElement('div');
             div.classList.add('floating-ball');
-            div.innerHTML=`❓ 如何使用`;
+            div.innerHTML=`❓ `;
             div.onclick=()=>{
                 currentStep = 0;
                 showGuideOverlay();
