@@ -190,16 +190,29 @@
             pointer-events: none;
         }
 
+        /* Clear Button for Main Image */
+        .main-clear-btn {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(0,0,0,0.5); color: white;
+            border: none; width: 32px; height: 32px; border-radius: 50%;
+            cursor: pointer; display: none; align-items: center; justify-content: center;
+            z-index: 5; font-size: 18px; font-weight: bold; transition: background 0.2s;
+        }
+        .main-clear-btn:hover { background: #ef4444; }
+        .image-wrapper:has(img[src]) .main-clear-btn { display: flex; }
+
         /* Waterfall View */
         .waterfall-container {
             column-count: 4;
             column-gap: 15px;
             width: 100%;
+            height: 100%;
             padding-bottom: 40px;
         }
         .waterfall-container.drag-over-waterfall {
             background: rgba(59, 130, 246, 0.05);
             border-radius: 8px;
+            border: dashed #7df;
         }
 
         @media (max-width: 1200px) { .waterfall-container { column-count: 3; } }
@@ -291,7 +304,6 @@
         .modal-click-close-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 1;
-            /* Clicking this closes the modal */
         }
 
         .modal-body { 
@@ -421,10 +433,11 @@
             <!-- View 1: Main Image -->
             <div id="view-main" class="view-layer active-view">
                 <div class="image-wrapper" id="img-wrapper">
+                    <button class="main-clear-btn" id="main-clear-btn" title="清空图片">×</button>
                     <img id="display-img" alt="Main Image" style="display: none;">
                     <div id="main-placeholder" class="empty-state">
                         <div class="empty-icon">🖼️</div>
-                        <div>拖入图片或视频到此处</div>
+                        <div>拖入\粘贴图片或视频到此处</div>
                     </div>
                 </div>
             </div>
@@ -436,7 +449,7 @@
                 </div>
                 <div id="res-placeholder" class="empty-state">
                     <div class="empty-icon">📂</div>
-                    <div>拖拽文件到此处添加资源<br>或使用左侧 "上传资源文件"</div>
+                    <div>拖拽\粘贴文件到此处添加资源<br>或使用左侧 "上传资源文件"</div>
                 </div>
             </div>
         </section>
@@ -455,7 +468,7 @@
 
     <script>
         /**
-         * PNG Information Handler
+         * PNG Information Handler - Updated with Chunk Extraction/Injection
          */
         class PngInfoHandler {
             static crc32(data) {
@@ -487,7 +500,7 @@
                 crcDv.setUint32(chunk.length, crc, false);
                 return result;
             }
-            static readInfo(data) {
+            static readInfo(data,type=['image', 'video', 'object']) {
                 const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
                 const pngSignature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
                 for (let i = 0; i < 8; i++) if (data[i] !== pngSignature[i]) return;
@@ -505,13 +518,19 @@
                         const keywordArray = textData.slice(0, nullIndex);
                         const textArray = textData.slice(nullIndex + 1);
                         const keyword = new TextDecoder().decode(keywordArray);
-                        const text = new TextDecoder().decode(textArray);
-                        if (['image', 'video', 'object'].includes(keyword)) foundInfo.push({ keyword, text });
+                        const data = new TextDecoder().decode(textArray);
+                        if (type){
+                            if (type.includes(keyword)) foundInfo.push({ keyword, data });
+                        }
+                        else{
+                            foundInfo.push({ keyword, data });
+                        }
                     }
                     pos += len + 4;
                 }
                 return foundInfo.length > 0 ? foundInfo : null;
             }
+
             static addMultipleInfo(pngData, attachments) {
                 let currentPng = pngData;
                 const pngSignature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -572,6 +591,7 @@
         const displayImg = document.getElementById('display-img');
         const mainPlaceholder = document.getElementById('main-placeholder');
         const imgWrapper = document.getElementById('img-wrapper'); 
+        const mainClearBtn = document.getElementById('main-clear-btn');
         
         const btnEncrypt = document.getElementById('btn-encrypt');
         const btnDecrypt = document.getElementById('btn-decrypt');
@@ -600,6 +620,8 @@
         let currentCurve = null; let currentWidth = 0; let currentHeight = 0;
         let currentAttachments = [];
         let currentModalIndex = -1;
+        let sourceUnknownTextChunks = []; // Store raw unknown chunks from source image
+        let userHasModifiedResources = false; // Flag to track if user added new resources
 
         // Helpers
         function setStatus(msg) { statusBar.querySelector('span').textContent = msg; }
@@ -608,7 +630,6 @@
             else loadingOverlay.classList.remove('active');
             btnEncrypt.disabled = isLoading || !displayImg.src;
             btnDecrypt.disabled = isLoading || !displayImg.src;
-            // Download button is enabled if image exists, regardless of processing state
             btnDownload.disabled = isLoading || !displayImg.src;
         }
 
@@ -648,6 +669,9 @@
         // Attachments Logic
         function processAttachments(files) {
             if(!files.length) return;
+            // User has manually added/modified resources
+            userHasModifiedResources = true; 
+
             Array.from(files).forEach(file => {
                 const reader = new FileReader();
                 reader.onload = (evt) => {
@@ -670,6 +694,8 @@
 
         function deleteAttachment(index) {
             currentAttachments.splice(index, 1);
+            // Even if deleting, user is modifying the resource set
+            userHasModifiedResources = true;
             renderWaterfall();
         }
 
@@ -734,6 +760,23 @@
             switchView('view-resources');
         });
 
+        // Clear Main Image
+        mainClearBtn.addEventListener('click', () => {
+            displayImg.src = '';
+            displayImg.style.display = 'none';
+            mainPlaceholder.style.display = 'flex';
+            currentAttachments = [];
+            sourceUnknownTextChunks = [];
+            userHasModifiedResources = false;
+            renderWaterfall();
+            setStatus('已清空');
+            btnEncrypt.disabled = true;
+            btnDecrypt.disabled = true;
+            btnDownload.disabled = true;
+            offsetSlider.disabled = true;
+            offsetInput.disabled = true;
+        });
+
         // --- DRAG AND DROP ENHANCEMENTS ---
 
         // Main Preview Drop (Main File)
@@ -786,6 +829,8 @@
                     const ctx = cvs.getContext('2d'); ctx.drawImage(video,0,0);
                     loadMainImage(cvs.toDataURL('image/jpeg', 0.9));
                     currentAttachments = [];
+                    // Reset modification flag for new file
+                    userHasModifiedResources = false; 
                     processAttachments([file]);
                     URL.revokeObjectURL(video.src);
                 };
@@ -811,22 +856,36 @@
                     if(fileObj && fileObj.type.includes('image/')) {
                         const r2 = new FileReader();
                         r2.onload = (evt) => {
-                            const infos = PngInfoHandler.readInfo(new Uint8Array(evt.target.result));
+                            const arrayBuffer = new Uint8Array(evt.target.result);
+                            // Extract known info
+                            const infos = PngInfoHandler.readInfo(arrayBuffer);
+                            // Extract ALL info (unknown) to store
+                            if(!infos)
+                                sourceUnknownTextChunks = PngInfoHandler.readInfo(arrayBuffer,null);
+
                             if(infos) {
                                 currentAttachments = [];
                                 infos.forEach(info => {
                                     let type='text', mime='text/plain';
                                     if(info.keyword==='image'){type='image'; mime='image/png';}
                                     else if(info.keyword==='video'){type='video'; mime='video/mp4';}
-                                    currentAttachments.push({type, mime, data: info.text, keyword: info.keyword, filename:'embedded'});
+                                    currentAttachments.push({type, mime, data: info.data, keyword: info.keyword, filename:'embedded'});
                                 });
                                 renderWaterfall();
                                 setStatus('已加载嵌入资源');
-                            } else { currentAttachments=[]; renderWaterfall(); }
+                            } else { 
+                                currentAttachments=[]; renderWaterfall(); 
+                            }
+                            // Reset modification flag
+                            userHasModifiedResources = false;
+                            setLoading(false);
                         };
                         r2.readAsArrayBuffer(fileObj);
+                    } else {
+                         // Not a file load (e.g., from video frame or paste)
+                         userHasModifiedResources = false;
+                         setLoading(false);
                     }
-                    setLoading(false);
                 }, 50);
             };
             img.src = url;
@@ -893,10 +952,14 @@
                 const r = new FileReader();
                 r.onload = () => {
                     let bytes = new Uint8Array(r.result);
-                    // Embed resources if any
+
                     if(currentAttachments.length > 0) {
                         bytes = PngInfoHandler.addMultipleInfo(bytes, currentAttachments);
                     }
+                    else if(sourceUnknownTextChunks&&!userHasModifiedResources){
+                        bytes = PngInfoHandler.addMultipleInfo(bytes, sourceUnknownTextChunks);
+                    }
+
                     const finalBlob = new Blob([bytes], {type:'image/png'});
                     const url = URL.createObjectURL(finalBlob);
                     
@@ -959,10 +1022,7 @@
 
         // Modal Event Listeners
         modalClose.onclick = closeModal;
-        
-        // The specific "click background to close" layer
         modalClickCloseLayer.onclick = closeModal;
-        
         modalPrev.onclick = (e) => {
             e.stopPropagation();
             if(currentAttachments.length <= 1) return;
@@ -986,7 +1046,6 @@
             if(e.key === 'ArrowRight') modalNext.click();
         });
 
-
         // Sidebar Drag Drop
         const sidebar = document.querySelector('.sidebar');
         sidebar.ondragover=e=>{ e.preventDefault(); };
@@ -1002,6 +1061,436 @@
         dropZone.ondrop=e=>{e.preventDefault(); dropZone.classList.remove('drag-over'); if(e.dataTransfer.files.length) { setLoading(true); handleMainFile(e.dataTransfer.files[0]); }};
         btnEncrypt.onclick = () => processImage('encrypt');
         btnDecrypt.onclick = () => processImage('decrypt');
+
+        // --- PASTE SUPPORT (Ctrl+V) ---
+        document.addEventListener('paste', (e) => {
+            const items = e.clipboardData.items;
+            const files = [];
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].kind === 'file') {
+                    files.push(items[i].getAsFile());
+                }
+            }
+
+            if (files.length === 0) return;
+
+            // Check active view
+            const isMainView = viewMain.classList.contains('active-view');
+            
+            if (isMainView) {
+                // Handle as main file
+                setLoading(true);
+                handleMainFile(files[0]);
+            } else {
+                // Handle as resources
+                processAttachments(files);
+            }
+        });
+
+
+        
+        let currentStep = 0;
+        let guideSteps = [];
+
+        function guidcss(){
+            guideSteps=[
+            {
+                element: dropZone,
+                message: "第一步：上传主文件\n点击此处或将图片/视频拖入此区域。如果是视频，系统会自动提取第一帧作为预览图。",
+                position: "bottom"
+            },
+            {
+                element: offsetSlider,
+                message: "第二步：调整混淆参数\n拖动滑块设置像素偏移量。默认使用黄金分割比例，您也可以自定义偏移百分比来改变加密效果。",
+                position: "bottom"
+            },
+            {
+                element: btnEncrypt,
+                message: "第三步：执行混淆/还原\n点击【混淆图片】对原图进行像素级加密打乱。如果是加密过的图片，点击【还原图片】即可恢复原貌。",
+                position: "top",
+                action:()=>{
+                    switchView('view-main');
+                }
+            },
+            {
+                element: document.querySelector('.view-toolbar .toggle-btn[data-target="view-resources"]'),
+                message: "第四步：管理附加资源\n点击这个按钮切换到【资源瀑布流】视图。您可以在此添加额外的文件（如文档、音乐、视频），它们将被隐藏嵌入到最终的图片中。",
+                position: "bottom",
+                action:()=>{
+                    switchView('view-resources');
+                }
+            }
+            ,
+            {
+                element: btnDownload,
+                message: "第五步：导出结果\n最后，点击【下载结果】。系统会将当前处理过的图片与所有附加资源打包成一个新的 PNG 文件供您保存。",
+                position: "top",
+                action:()=>{
+                    switchView('view-main');
+                }
+            }
+            ];
+            
+            const css = `/* 帮助按钮样式 */
+                .help-button {
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    width: 50px;
+                    height: 50px;
+                    border-radius: 50%;
+                    background-color: #1890ff;
+                    color: white;
+                    border: none;
+                    font-size: 20px;
+                    cursor: pointer;
+                    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 1000;
+                    transition: all 0.3s ease;
+                }
+
+                .help-button:hover {
+                    background-color: #40a9ff;
+                    transform: scale(1.1);
+                }
+
+                /* 引导遮罩层 */
+                .guide-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background-color: rgba(0, 0, 0, 0.5);
+                    z-index: 999;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+
+                .guide-content {
+                    background-color: white;
+                    padding: 20px;
+                    border-radius: 8px;
+                    max-width: 400px;
+                    text-align: center;
+                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                }
+
+                .guide-content h3 {
+                    margin-bottom: 15px;
+                    color: #1890ff;
+                }
+
+                .guide-content p {
+                    margin-bottom: 20px;
+                    line-height: 1.5;
+                }
+
+                .guide-buttons {
+                    display: flex;
+                    justify-content: space-between;
+                }
+
+                .guide-button {
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                }
+
+                .prev-button {
+                    background-color: #f0f0f0;
+                    color: #333;
+                }
+
+                .next-button {
+                    background-color: #1890ff;
+                    color: white;
+                }
+
+                .skip-button {
+                    background-color: #ff4d4f;
+                    color: white;
+                }
+
+                .finish-button {
+                    background-color: #52c41a;
+                    color: white;
+                }
+
+                /* 高亮区域 */
+                .highlight-area {
+                    position: absolute;
+                    border: 3px solid #1890ff;
+                    border-radius: 8px;
+                    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+                    z-index: 1000;
+                    pointer-events: none;
+                }
+
+                /* 引导提示框样式 - 宽度固定，高度自适应 */
+                .highlight-tooltip {
+                    position: absolute;
+                    background-color: #1890ff;
+                    color: white;
+                    padding: 15px;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    z-index: 1001;
+                    width: 300px;
+                    max-width: 300px;
+                    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+                    text-align: left;
+                    line-height: 1.6;
+                    word-wrap: break-word;
+                    white-space: pre-line; /* 支持\\n换行 */
+                }
+
+                .highlight-tooltip::after {
+                    content: '';
+                    position: absolute;
+                    width: 0;
+                    height: 0;
+                    border: 8px solid transparent;
+                }
+
+                /* 上方提示框 */
+                .highlight-tooltip.tooltip-top::after {
+                    bottom: -16px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    border-top-color: #1890ff;
+                }
+
+                /* 下方提示框 */
+                .highlight-tooltip.tooltip-bottom::after {
+                    top: -16px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    border-bottom-color: #1890ff;
+                }
+
+                /* 引导按钮容器 */
+                .guide-tooltip-buttons {
+                    display: flex;
+                    justify-content: space-between;
+                    gap: 10px;
+                    margin-top: 15px;
+                    flex-wrap: wrap;
+                }
+
+                .guide-tooltip-button {
+                    padding: 6px 12px;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    flex: 1;
+                    text-align: center;
+                    min-width: 60px;
+                }
+
+                .prev-tooltip-button {
+                    background-color: rgba(255, 255, 255, 0.2);
+                    color: white;
+                    border: 1px solid rgba(255, 255, 255, 0.3);
+                }
+
+                .next-tooltip-button {
+                    background-color: white;
+                    color: #1890ff;
+                    font-weight: 500;
+                }
+
+                .finish-tooltip-button {
+                    background-color: #52c41a;
+                    color: white;
+                }
+
+                .skip-tooltip-button {
+                    background-color: rgba(255, 77, 79, 0.8);
+                    color: white;
+                }
+
+                .guide-tooltip-button:hover {
+                    opacity: 0.9;
+                    transform: translateY(-1px);
+                    transition: all 0.2s ease;
+                }`;
+
+            let style = document.createElement('style');
+            style.type = 'text/css';
+            style.innerHTML = css;
+            document.getElementsByTagName('head')[0].appendChild(style);
+        }
+
+        function showGuideOverlay() {
+            // 移除现有的高亮元素
+            const existingHighlight = document.querySelector('.highlight-area');
+            if (existingHighlight) existingHighlight.remove();
+
+            const existingTooltip = document.querySelector('.highlight-tooltip');
+            if (existingTooltip) existingTooltip.remove();
+
+            if (currentStep >= guideSteps.length) {
+                // 引导结束
+                return;
+            }
+
+            const step = guideSteps[currentStep];
+            const element = step.element;
+            const rect = element.getBoundingClientRect();
+
+            // 创建高亮区域
+            const highlight = document.createElement('div');
+            highlight.className = 'highlight-area';
+            highlight.style.left = rect.left + 'px';
+            highlight.style.top = rect.top + 'px';
+            highlight.style.width = rect.width + 'px';
+            highlight.style.height = rect.height + 'px';
+            document.body.appendChild(highlight);
+
+            // 创建提示信息
+            const tooltip = document.createElement('div');
+            tooltip.className = `highlight-tooltip tooltip-${step.position}`;
+            
+            // 创建按钮HTML
+            let buttonsHTML = '<div class="guide-tooltip-buttons">';
+            if (currentStep > 0) {
+                buttonsHTML += '<button class="guide-tooltip-button prev-tooltip-button" id="prevGuideTooltip">上一步</button>';
+            }
+            
+            if (currentStep < guideSteps.length - 1) {
+                buttonsHTML += '<button class="guide-tooltip-button next-tooltip-button" id="nextGuideTooltip">下一步</button>';
+            } else {
+                buttonsHTML += '<button class="guide-tooltip-button finish-tooltip-button" id="finishGuideTooltip">完成</button>';
+            }
+            
+            buttonsHTML += '<button class="guide-tooltip-button skip-tooltip-button" id="skipGuideTooltip">跳过</button>';
+            buttonsHTML += '</div>';
+            
+            // 设置提示内容，支持\n换行
+            tooltip.innerHTML = `<div class="guide-message">${step.message}</div>${buttonsHTML}`;
+            
+            // 如果有action，执行它
+            if (step.action) {
+                step.action();
+            }
+            
+            // 将提示框添加到DOM
+            document.body.appendChild(tooltip);
+            
+            // 计算提示框位置
+            const tooltipWidth = 300; // 固定宽度
+            const tooltipHeight = tooltip.offsetHeight;
+            const spacing = 15; // 高亮区域和提示框的间距
+            
+            if (step.position === 'bottom') {
+                // 提示框在下方
+                tooltip.style.left = Math.max(10, Math.min(
+                    rect.left + rect.width / 2 - tooltipWidth / 2,
+                    window.innerWidth - tooltipWidth - 10
+                )) + 'px';
+                tooltip.style.top = rect.bottom + spacing + 'px';
+            } else {
+                // 提示框在上方
+                tooltip.style.left = Math.max(10, Math.min(
+                    rect.left + rect.width / 2 - tooltipWidth / 2,
+                    window.innerWidth - tooltipWidth - 10
+                )) + 'px';
+                tooltip.style.top = Math.max(10, rect.top - tooltipHeight - spacing) + 'px';
+            }
+            
+            // 添加按钮事件监听器
+            const addButtonListeners = () => {
+                const prevBtn = document.getElementById('prevGuideTooltip');
+                const nextBtn = document.getElementById('nextGuideTooltip');
+                const finishBtn = document.getElementById('finishGuideTooltip');
+                const skipBtn = document.getElementById('skipGuideTooltip');
+                
+                if (prevBtn) {
+                    prevBtn.addEventListener('click', () => {
+                        currentStep--;
+                        document.body.removeChild(highlight);
+                        document.body.removeChild(tooltip);
+                        showGuideOverlay();
+                    });
+                }
+                
+                if (nextBtn) {
+                    nextBtn.addEventListener('click', () => {
+                        currentStep++;
+                        document.body.removeChild(highlight);
+                        document.body.removeChild(tooltip);
+                        showGuideOverlay();
+                    });
+                }
+                
+                if (finishBtn) {
+                    finishBtn.addEventListener('click', () => {
+                        document.body.removeChild(highlight);
+                        document.body.removeChild(tooltip);
+                        currentStep = guideSteps.length;
+                        // 引导结束逻辑
+                    });
+                }
+                
+                if (skipBtn) {
+                    skipBtn.addEventListener('click', () => {
+                        document.body.removeChild(highlight);
+                        document.body.removeChild(tooltip);
+                        currentStep = guideSteps.length;
+                        // 引导结束逻辑
+                    });
+                }
+            };
+            
+            // 确保DOM渲染后添加事件监听
+            setTimeout(addButtonListeners, 0);
+        }
+
+
+        function floatball(path='interface.jpg'){
+            const css=`.floating-ball {
+                width: 100px;
+                height: 30px;
+                background-color: #e0f2fe;
+                color: #0369a1;
+                border-radius: 15px;
+                position: fixed;
+                top: 30px;
+                right: 30px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: transform 0.3s ease;
+                cursor: pointer;
+            }
+            .floating-ball:hover {
+                transform: scale(1.2);
+            }`;
+            let style = document.createElement('style');
+            style.type = 'text/css';
+            style.innerHTML=css;
+            document.getElementsByTagName('head')[0].appendChild(style);
+            let div=document.createElement('div');
+            div.classList.add('floating-ball');
+            div.innerHTML=`❓ 如何使用`;
+            div.onclick=()=>{
+                currentStep = 0;
+                showGuideOverlay();
+            }
+            document.body.append(div)
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            floatball();
+            guidcss();
+        });
 
     </script>
 </body>
