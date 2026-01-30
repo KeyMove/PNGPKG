@@ -55,7 +55,7 @@
             border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 10px;
             overflow-y: auto;
         }
 
@@ -181,6 +181,17 @@
         .image-wrapper.drag-over-main {
             box-shadow: inset 0 0 0 4px var(--primary-color);
             background: rgba(59, 130, 246, 0.1);
+        }
+
+        /* 手势方向样式 */
+        .image-wrapper.drag-over-gesture-ltr {
+            box-shadow: inset 0 0 0 4px #22c55e !important; /* 绿色 - 还原 */
+            background: rgba(34, 197, 94, 0.1) !important;
+        }
+
+        .image-wrapper.drag-over-gesture-rtl {
+            box-shadow: inset 0 0 0 4px #3b82f6 !important; /* 蓝色 - 混淆 */
+            background: rgba(59, 130, 246, 0.1) !important;
         }
         .image-wrapper img {
             max-width: 100%; max-height: 100%;
@@ -440,6 +451,22 @@
                 </div>
             </div>
 
+            <!-- 在核心操作后面添加 -->
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; user-select: none; margin-bottom: 6px;">
+                    <input type="checkbox" id="gesture-toggle" style="width: 16px; height: 16px; accent-color: var(--primary-color);">
+                    <span style="font-weight: 600;">使用鼠标手势拖拽</span>
+                </label>
+                <div style="font-size: 0.75rem; color: var(--text-sub); padding-left: 24px; line-height: 1.5; background: rgba(59, 130, 246, 0.05); padding: 8px; border-radius: 6px; margin-top: 4px;">
+                    <span style="color: #22c55e; font-weight: 600;">左→右（绿色）：</span>自动还原<br>
+                    <span style="color: #3b82f6; font-weight: 600;">右→左（蓝色）：</span>自动混淆
+                </div>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; user-select: none; margin-bottom: 6px;">
+                    <input type="checkbox" id="autocopy" style="width: 16px; height: 16px; accent-color: var(--primary-color);">
+                    <span style="font-weight: 600;">混淆/还原后自动复制</span>
+                </label>
+            </div>
+
             <!-- 4. Add Resource Button -->
             <div>
                 <div class="section-title">4. 资源管理</div>
@@ -658,12 +685,35 @@
         const modalPrev = document.getElementById('modal-prev');
         const modalNext = document.getElementById('modal-next');
 
+        const gestureToggle = document.getElementById('gesture-toggle');
+        const autocopy = document.getElementById('autocopy');
+        
+
         // State
         let currentCurve = null; let currentWidth = 0; let currentHeight = 0;
         let currentAttachments = [];
         let currentModalIndex = -1;
         let sourceUnknownTextChunks = []; // Store raw unknown chunks from source image
         let userHasModifiedResources = false; // Flag to track if user added new resources
+
+        // 新增：手势相关状态
+        let gestureStartX = null;
+        let currentGestureDirection = null; // 'ltr' | 'rtl'
+        let gestureDropTimer = null;
+
+
+        // 手势设置持久化
+        function saveGestureSetting() {
+            localStorage.setItem('useDragGesture', gestureToggle.checked);
+            localStorage.setItem('autocopy', autocopy.checked);
+        }
+
+        function loadGestureSetting() {
+            const saved = localStorage.getItem('useDragGesture');
+            gestureToggle.checked = saved !== null ? (saved === 'true') : true; // 默认开启
+            const autocopysave = localStorage.getItem('autocopy');
+            autocopy.checked = autocopysave !== null ? (autocopysave === 'true') : false; // 默认开启
+        }
 
         // Helpers
         function setStatus(msg) { statusBar.querySelector('span').textContent = msg; }
@@ -851,29 +901,124 @@
                 setStatus('❌ 复制失败，请使用右键保存');
                 
                 // 降级方案：提示用户右键
-                alert('自动复制失败，您可以：\n1. 右键点击图片选择"复制图片"\n2. 或先下载再复制');
+                // alert('自动复制失败，您可以：\n1. 右键点击图片选择"复制图片"\n2. 或先下载再复制');
             }
         });
 
         // --- DRAG AND DROP ENHANCEMENTS ---
 
-        // Main Preview Drop (Main File)
-        imgWrapper.addEventListener('dragover', (e) => {
+        // 修改 Main Preview Drop 逻辑
+        imgWrapper.addEventListener('dragenter', (e) => {
             e.preventDefault();
+            if (gestureToggle.checked && e.dataTransfer.types.includes('Files')) {
+                gestureStartX = e.clientX;
+                currentGestureDirection = null;
+            }
             imgWrapper.classList.add('drag-over-main');
         });
-        imgWrapper.addEventListener('dragleave', (e) => {
+        imgWrapper.addEventListener('dragover', (e) => {
             e.preventDefault();
-            imgWrapper.classList.remove('drag-over-main');
-        });
-        imgWrapper.addEventListener('drop', (e) => {
-            e.preventDefault();
-            imgWrapper.classList.remove('drag-over-main');
-            if(e.dataTransfer.files.length) {
-                setLoading(true);
-                handleMainFile(e.dataTransfer.files[0]);
+            
+            // 手势方向检测
+            if (gestureToggle.checked && gestureStartX !== null) {
+                const currentX = e.clientX;
+                const diff = currentX - gestureStartX;
+                const threshold = 20; // 20px 阈值防止抖动
+                
+                if (Math.abs(diff) > threshold) {
+                    gestureStartX=gestureStartX*0.9+currentX*0.1;
+                    // 移除基础样式，应用方向样式
+                    imgWrapper.classList.remove('drag-over-main');
+                    
+                    if (diff > 0) {
+                        // 左到右 → 还原（绿色）
+                        if (currentGestureDirection !== 'ltr') {
+                            currentGestureDirection = 'ltr';
+                            imgWrapper.classList.remove('drag-over-gesture-rtl');
+                            imgWrapper.classList.add('drag-over-gesture-ltr');
+                            setStatus('检测到手势：左→右（将执行还原）');
+                        }
+                    } else {
+                        // 右到左 → 混淆（蓝色）
+                        if (currentGestureDirection !== 'rtl') {
+                            currentGestureDirection = 'rtl';
+                            imgWrapper.classList.remove('drag-over-gesture-ltr');
+                            imgWrapper.classList.add('drag-over-gesture-rtl');
+                            setStatus('检测到手势：右→左（将执行混淆）');
+                        }
+                    }
+                }
             }
         });
+
+        imgWrapper.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            // 检查是否真的离开了 wrapper（而不是进入子元素）
+            if (!imgWrapper.contains(e.relatedTarget)) {
+                resetGestureState();
+            }
+        });
+
+        imgWrapper.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const files = e.dataTransfer.files;
+            if (!files.length) {
+                resetGestureState();
+                return;
+            }
+            
+            const isImage = files[0].type.startsWith('image/');
+            
+            // 如果开启了手势且检测到了方向，且是图片文件
+            if (gestureToggle.checked && currentGestureDirection && isImage) {
+                setStatus(`手势确认：${currentGestureDirection === 'ltr' ? '左→右' : '右→左'}，图片加载完成后将自动执行...`);
+                
+                // 先正常加载图片，传入回调函数
+                handleMainFile(files[0], () => {
+                    // 图片加载完成后的回调
+                    setStatus(`图片加载完成，500ms后自动${currentGestureDirection === 'ltr' ? '还原' : '混淆'}...`);
+                    
+                    // 清除可能存在的旧定时器
+                    if (gestureDropTimer) clearTimeout(gestureDropTimer);
+                    
+                    // 图片加载完成后，再延迟500ms执行操作
+                    gestureDropTimer = setTimeout(() => {
+                        if (currentGestureDirection === 'ltr') {
+                            processImage('decrypt'); // 左→右：还原
+                            setStatus('✅ 手势触发：已还原图片');
+                        } else {
+                            processImage('encrypt'); // 右→左：混淆
+                            setStatus('✅ 手势触发：已混淆图片');
+                        }
+                        // 执行后清除方向状态
+                        currentGestureDirection = null;
+                        gestureStartX = null;
+                    }, 100);
+                });
+                
+            } else {
+                // 普通模式或无法识别手势，直接加载（无回调）
+                handleMainFile(files[0]);
+            }
+            
+            // 清除视觉样式
+            imgWrapper.classList.remove('drag-over-main', 'drag-over-gesture-ltr', 'drag-over-gesture-rtl');
+        });
+
+        function resetGestureState() {
+            gestureStartX = null;
+            currentGestureDirection = null;
+            imgWrapper.classList.remove('drag-over-main', 'drag-over-gesture-ltr', 'drag-over-gesture-rtl');
+            if (gestureDropTimer) {
+                clearTimeout(gestureDropTimer);
+                gestureDropTimer = null;
+            }
+        }
+
+        // 初始化设置
+        gestureToggle.addEventListener('change', saveGestureSetting);
+        autocopy.addEventListener('change', saveGestureSetting);
+        loadGestureSetting();
 
         // Waterfall Drop (Resources)
         waterfallContainer.addEventListener('dragover', (e) => {
@@ -892,8 +1037,8 @@
             }
         });
 
-        // Main File Logic
-        function handleMainFile(file) {
+        // 修改函数签名，添加可选回调
+        function handleMainFile(file, onLoadComplete = null) {
             if(!file) return;
             if(file.type.startsWith('video/')) {
                 setStatus('提取视频帧...');
@@ -905,9 +1050,9 @@
                     const cvs = document.createElement('canvas');
                     cvs.width = video.videoWidth || 640; cvs.height = video.videoHeight || 360;
                     const ctx = cvs.getContext('2d'); ctx.drawImage(video,0,0);
-                    loadMainImage(cvs.toDataURL('image/jpeg', 0.9));
+                    // 视频帧加载完成后触发回调
+                    loadMainImage(cvs.toDataURL('image/jpeg', 0.9), null, onLoadComplete);
                     currentAttachments = [];
-                    // Reset modification flag for new file
                     userHasModifiedResources = false; 
                     processAttachments([file]);
                     URL.revokeObjectURL(video.src);
@@ -915,12 +1060,12 @@
                 video.load();
             } else if(file.type.startsWith('image/')) {
                 const r = new FileReader();
-                r.onload = (e) => loadMainImage(e.target.result, file);
+                r.onload = (e) => loadMainImage(e.target.result, file, onLoadComplete);
                 r.readAsDataURL(file);
             }
         }
 
-        function loadMainImage(url, fileObj=null) {
+        function loadMainImage(url, fileObj=null, onComplete=null) {  // 添加 onComplete 参数
             const img = new Image();
             img.onload = () => {
                 currentWidth = img.width; currentHeight = img.height;
@@ -931,13 +1076,18 @@
                     displayImg.src = url; displayImg.style.display = 'block'; mainPlaceholder.style.display = 'none';
                     btnEncrypt.disabled = false; btnDecrypt.disabled = false; offsetSlider.disabled = false; offsetInput.disabled = false;
 
+                    const finishLoading = () => {
+                        userHasModifiedResources = false;
+                        setLoading(false);
+                        // 图片完全加载并处理完毕后，执行回调（用于手势延迟操作）
+                        if (onComplete) onComplete();
+                    };
+
                     if(fileObj && fileObj.type.includes('image/')) {
                         const r2 = new FileReader();
                         r2.onload = (evt) => {
                             const arrayBuffer = new Uint8Array(evt.target.result);
-                            // Extract known info
                             const infos = PngInfoHandler.readInfo(arrayBuffer);
-                            // Extract ALL info (unknown) to store
                             if(!infos)
                                 sourceUnknownTextChunks = PngInfoHandler.readInfo(arrayBuffer,null);
 
@@ -954,15 +1104,11 @@
                             } else { 
                                 currentAttachments=[]; renderWaterfall(); 
                             }
-                            // Reset modification flag
-                            userHasModifiedResources = false;
-                            setLoading(false);
+                            finishLoading();
                         };
                         r2.readAsArrayBuffer(fileObj);
                     } else {
-                         // Not a file load (e.g., from video frame or paste)
-                         userHasModifiedResources = false;
-                         setLoading(false);
+                        finishLoading();
                     }
                 }, 50);
             };
@@ -1007,6 +1153,11 @@
                         if(displayImg.src.startsWith('blob:')) URL.revokeObjectURL(displayImg.src);
                         displayImg.src = url;
                         setStatus('处理完成'); setLoading(false);
+                        displayImg.onload=()=>{
+                            setTimeout(() => {
+                                if(autocopy.checked)mainCopyBtn.click();
+                            }, 50);
+                        }
                     }, 'image/png');
                 } catch(e) { console.error(e); setStatus('错误: '+e.message); setLoading(false); }
             }, 50);
