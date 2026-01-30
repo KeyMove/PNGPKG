@@ -205,9 +205,9 @@
         .waterfall-container {
             column-count: 4;
             column-gap: 15px;
-            width: 100%;
-            min-height: 100%;
-            padding-bottom: 40px;
+            /* Firefox 稳定性修复 */
+            display: block;
+            vertical-align: top;
         }
         .waterfall-container.drag-over-waterfall {
             background: rgba(59, 130, 246, 0.05);
@@ -229,10 +229,17 @@
         }
 
         .waterfall-card {
+            /* 防止元素被截断/跨列 - Firefox 兼容方案 */
             break-inside: avoid;
+            page-break-inside: avoid;  /* Firefox 旧版支持 */
+            -webkit-column-break-inside: avoid; /* Webkit 旧版 */
+            
+            /* 修复 Firefox 中 overflow 与 break-inside 的冲突 */
+            overflow: visible;  /* 改为 visible，让 break-inside 生效 */
+            
             background: white;
             border-radius: 8px;
-            overflow: hidden;
+            /* overflow: hidden;  <-- 移除或注释掉这行，它会导致 Firefox 不换行 */
             margin-bottom: 15px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
             transition: transform 0.2s, box-shadow 0.2s;
@@ -246,10 +253,13 @@
             border-color: var(--primary-color);
         }
 
+        /* 为保持圆角效果，在内部子元素添加 overflow */
         .waterfall-media {
             width: 100%;
             display: block;
             background: #f1f5f9;
+            overflow: hidden; /* 将 overflow: hidden 移到这里 */
+            border-radius: 8px 8px 0 0; /* 顶部圆角 */
         }
         .waterfall-media img, .waterfall-media video {
             width: 100%; height: auto; display: block;
@@ -258,6 +268,7 @@
         .waterfall-info {
             padding: 10px;
             background: white;
+            border-radius: 0 0 8px 8px; /* 底部圆角 */
         }
         .waterfall-filename {
             font-size: 0.8rem; font-weight: 600; color: var(--text-main);
