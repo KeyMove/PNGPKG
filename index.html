@@ -199,7 +199,20 @@
             z-index: 5; font-size: 18px; font-weight: bold; transition: background 0.2s;
         }
         .main-clear-btn:hover { background: #ef4444; }
+        /* 新增：复制按钮样式 */
+        .main-copy-btn {
+            position: absolute; top: 10px; right: 50px;  /* 在清除按钮左侧 */
+            background: rgba(0,0,0,0.5); color: white;
+            border: none; width: 32px; height: 32px; border-radius: 50%;
+            cursor: pointer; display: none; align-items: center; justify-content: center;
+            z-index: 5; font-size: 14px; transition: all 0.2s;
+        }
+        .main-copy-btn:hover { 
+            background: var(--primary-color); 
+            transform: scale(1.1);
+        }
         .image-wrapper:has(img[src]) .main-clear-btn { display: flex; }
+        .image-wrapper:has(img[src]) .main-copy-btn { display: flex; }
 
         /* Waterfall View */
         .waterfall-container {
@@ -462,6 +475,7 @@
             <div id="view-main" class="view-layer active-view">
                 <div class="image-wrapper" id="img-wrapper">
                     <button class="main-clear-btn" id="main-clear-btn" title="清空图片">×</button>
+                    <button class="main-copy-btn" id="main-copy-btn" title="复制图片到剪贴板（不带资源）">📋</button>
                     <img id="display-img" alt="Main Image" style="display: none;">
                     <div id="main-placeholder" class="empty-state">
                         <div class="empty-icon">🖼️</div>
@@ -620,6 +634,7 @@
         const mainPlaceholder = document.getElementById('main-placeholder');
         const imgWrapper = document.getElementById('img-wrapper'); 
         const mainClearBtn = document.getElementById('main-clear-btn');
+        const mainCopyBtn = document.getElementById('main-copy-btn');  // 新增
         
         const btnEncrypt = document.getElementById('btn-encrypt');
         const btnDecrypt = document.getElementById('btn-decrypt');
@@ -803,6 +818,42 @@
             btnDownload.disabled = true;
             offsetSlider.disabled = true;
             offsetInput.disabled = true;
+        });
+
+        // 新增：复制图片功能
+        mainCopyBtn.addEventListener('click', async () => {
+            if (!displayImg.src) return;
+            
+            try {
+                setStatus('正在复制...');
+                
+                // 获取图片 blob
+                const response = await fetch(displayImg.src);
+                const blob = await response.blob();
+                
+                // 写入剪贴板
+                const item = new ClipboardItem({ [blob.type]: blob });
+                await navigator.clipboard.write([item]);
+                
+                setStatus('✅ 图片已复制到剪贴板');
+                
+                // 临时视觉反馈
+                const originalText = mainCopyBtn.textContent;
+                mainCopyBtn.textContent = '✓';
+                mainCopyBtn.style.background = '#22c55e';
+                
+                setTimeout(() => {
+                    mainCopyBtn.textContent = originalText;
+                    mainCopyBtn.style.background = '';
+                }, 1500);
+                
+            } catch (err) {
+                console.error('复制失败:', err);
+                setStatus('❌ 复制失败，请使用右键保存');
+                
+                // 降级方案：提示用户右键
+                alert('自动复制失败，您可以：\n1. 右键点击图片选择"复制图片"\n2. 或先下载再复制');
+            }
         });
 
         // --- DRAG AND DROP ENHANCEMENTS ---
