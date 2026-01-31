@@ -224,13 +224,27 @@
         .image-wrapper:has(img[src]) .main-clear-btn { display: flex; }
         .image-wrapper:has(img[src]) .main-copy-btn { display: flex; }
 
+        /* 新增：复制按钮样式 */
+        .main-paste-btn {
+            position: absolute; top: 10px; left: 10px;  /* 在清除按钮左侧 */
+            background: rgba(0,0,0,0.5); color: white;
+            border: none; width: 32px; height: 32px; border-radius: 50%;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            z-index: 5; font-size: 14px; transition: all 0.2s;
+        }
+        .main-paste-btn:hover { 
+            background: var(--primary-color); 
+            transform: scale(1.1);
+        }
+
         /* Waterfall View */
         .waterfall-container {
             column-count: 4;
             column-gap: 15px;
             /* Firefox 稳定性修复 */
-            display: block;
-            vertical-align: top;
+            width: 100%;
+            min-height: 100%;
+            padding-bottom: 40px;
         }
         .waterfall-container.drag-over-waterfall {
             background: rgba(59, 130, 246, 0.05);
@@ -240,7 +254,12 @@
 
         @media (max-width: 1200px) { .waterfall-container { column-count: 3; } }
         @media (max-width: 800px) { .waterfall-container { column-count: 2; } }
-        @media (max-width: 500px) { .waterfall-container { column-count: 1; } }
+        @media (max-width: 500px) { .waterfall-container { 
+            column-count: auto;  /* 或 initial */
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+         } }
         /* Mobile */
         @media (max-width: 768px) {
             .app-container { grid-template-columns: 1fr; height: auto; }
@@ -502,6 +521,7 @@
                 <div class="image-wrapper" id="img-wrapper">
                     <button class="main-clear-btn" id="main-clear-btn" title="清空图片">×</button>
                     <button class="main-copy-btn" id="main-copy-btn" title="复制图片到剪贴板（不带资源）">📋</button>
+                    <button class="main-paste-btn" id="main-paste-btn" title="粘贴图片到主窗口">🖼️</button>
                     <img id="display-img" alt="Main Image" style="display: none;">
                     <div id="main-placeholder" class="empty-state">
                         <div class="empty-icon">🖼️</div>
@@ -1325,7 +1345,99 @@
             }
         });
 
+        // 添加按钮事件监听（放在原有 paste 事件之后）
+        document.getElementById('main-paste-btn').addEventListener('click', async () => {
+            try {
+                await readClipboard();
+            } catch (err) {
+                console.error('读取剪贴板失败:', err);
+                // 降级提示：让用户手动粘贴
+                if (err.name === 'NotAllowedError') {
+                    alert('请允许剪贴板权限，或使用 Ctrl+V 直接粘贴');
+                } else if (err.name === 'TypeError' || !navigator.clipboard) {
+                    alert('您的浏览器不支持主动读取剪贴板，请使用 Ctrl+V 直接粘贴');
+                }
+            }
+        });
 
+        // 主动读取剪贴板函数
+        async function readClipboard() {
+            // 检查浏览器支持
+            if (!navigator.clipboard || !navigator.clipboard.read) {
+                throw new Error('Clipboard API not supported');
+            }
+
+            // 检查是否为安全上下文 (HTTPS 或 localhost)
+            if (!window.isSecureContext) {
+                throw new Error('必须在 HTTPS 或 localhost 环境下使用');
+            }
+
+            // 请求权限（Chrome/Edge 需要）
+            if (navigator.permissions) {
+                try {
+                    const permission = await navigator.permissions.query({ 
+                        name: 'clipboard-read' 
+                    });
+                    
+                    if (permission.state === 'denied') {
+                        throw new Error('剪贴板读取权限被拒绝');
+                    }
+                } catch (e) {
+                    // Firefox 不支持 clipboard-read 权限查询，继续尝试读取
+                    console.log('权限查询失败，尝试直接读取:', e);
+                }
+            }
+
+            // 读取剪贴板内容
+            const clipboardItems = await navigator.clipboard.read();
+            const files = [];
+
+            for (const item of clipboardItems) {
+                // 检查所有可用的类型
+                for (const type of item.types) {
+                    if (type.startsWith('image/')) {
+                        const blob = await item.getType(type);
+                        // 将 blob 转换为 File 对象，以便复用原有逻辑
+                        const file = new File([blob], `clipboard-image.${type.split('/')[1]}`, { 
+                            type: type 
+                        });
+                        files.push(file);
+                    }
+                }
+            }
+
+            if (files.length === 0) {
+                console.log('剪贴板中没有图片文件');
+                return;
+            }
+
+            // 复用原有逻辑处理文件
+            handleClipboardFiles(files);
+        }
+
+        // 封装原有处理逻辑，方便复用
+        function handleClipboardFiles(files) {
+            // Check active view
+            const isMainView = viewMain.classList.contains('active-view');
+            
+            if (isMainView) {
+                // Handle as main file
+                setLoading(true);
+                handleMainFile(files[0], () => {
+                    if (!gestureToggle.checked) return;
+                    setTimeout(() => {
+                        if (currentGestureDirection === 'ltr') {
+                            processImage('decrypt'); // 左→右：还原
+                        } else {
+                            processImage('encrypt'); // 右→左：混淆
+                        }
+                    }, 100);
+                });
+            } else {
+                // Handle as resources
+                processAttachments(files);
+            }
+        }
         
         let currentStep = 0;
         let guideSteps = [];
