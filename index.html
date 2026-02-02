@@ -1855,10 +1855,19 @@
         document.addEventListener('DOMContentLoaded', function() {
             floatball();
             guidcss();
+            loadBusuanzi();
         });
 
+
+
+        function loadBusuanzi() {
+            const script = document.createElement('script');
+            script.src = '//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js';
+            script.async = true;
+            document.body.appendChild(script);
+        }
     </script>
-     <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+    
      
 </body>
 </html>
