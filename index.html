@@ -812,6 +812,32 @@
             renderWaterfall();
         }
 
+        function downloadAttachment(attach) {
+            try {
+                const byteString = atob(attach.data);
+                const ab = new ArrayBuffer(byteString.length);
+                const ia = new Uint8Array(ab);
+                for (let i = 0; i < byteString.length; i++) {
+                    ia[i] = byteString.charCodeAt(i);
+                }
+                const blob = new Blob([ab], { type: attach.mime });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = attach.filename !== 'embedded' ? attach.filename : `download.${attach.mime.split('/')[1] || 'bin'}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                setStatus(`已下载: ${attach.filename}`);
+            } catch (err) {
+                console.error('下载失败:', err);
+                setStatus('下载失败');
+            }
+        }
+
         function renderWaterfall() {
             waterfallContainer.innerHTML = '';
             if(currentAttachments.length === 0) {
@@ -828,7 +854,7 @@
                 
                 const mediaDiv = document.createElement('div');
                 mediaDiv.className = 'waterfall-media';
-                mediaDiv.onclick = (e) => { if(!e.target.classList.contains('card-delete-btn')) openModal(idx); };
+                mediaDiv.onclick = (e) => { if(!e.target.classList.contains('card-delete-btn') && !e.target.classList.contains('card-download-btn')) openModal(idx); };
 
                 if(attach.type === 'image') {
                     const img = document.createElement('img'); 
@@ -862,10 +888,41 @@
                 delBtn.className = 'card-delete-btn'; delBtn.innerHTML = '&times;';
                 delBtn.onclick = (e) => { e.stopPropagation(); deleteAttachment(idx); };
 
-                card.append(mediaDiv, info, delBtn);
+                // 新增：下载按钮
+                const downloadBtn = document.createElement('button');
+                downloadBtn.className = 'card-download-btn'; 
+                downloadBtn.innerHTML = '⬇';
+                downloadBtn.title = '下载此资源';
+                downloadBtn.style.cssText = `
+                    position: absolute; top: 5px; right: 34px;
+                    background: rgba(0,0,0,0.6); color: white;
+                    border: none; width: 24px; height: 24px; border-radius: 50%;
+                    cursor: pointer; display: flex; align-items: center; justify-content: center;
+                    opacity: 0; transition: opacity 0.2s; font-size: 12px;
+                `;
+                downloadBtn.onmouseenter = () => downloadBtn.style.background = '#3b82f6';
+                downloadBtn.onmouseleave = () => downloadBtn.style.background = 'rgba(0,0,0,0.6)';
+                downloadBtn.onclick = (e) => { 
+                    e.stopPropagation(); 
+                    downloadAttachment(attach); 
+                };
+
+                // 修改 hover 效果：同时显示删除和下载按钮
+                card.onmouseenter = () => {
+                    delBtn.style.opacity = '1';
+                    downloadBtn.style.opacity = '1';
+                };
+                card.onmouseleave = () => {
+                    delBtn.style.opacity = '0';
+                    downloadBtn.style.opacity = '0';
+                };
+
+                card.append(mediaDiv, info, delBtn, downloadBtn);
                 waterfallContainer.appendChild(card);
             });
         }
+
+
 
         attachInput.addEventListener('change', (e) => {
             processAttachments(e.target.files);
@@ -1081,7 +1138,14 @@
                 video.load();
             } else if(file.type.startsWith('image/')) {
                 const r = new FileReader();
-                r.onload = (e) => loadMainImage(e.target.result, file, onLoadComplete);
+                r.onload = (e) => {
+                    loadMainImage(e.target.result, file, onLoadComplete);
+                    if(file.type === 'image/gif'){
+                        setTimeout(() => {
+                            processAttachments([file]);
+                        }, 500);
+                    }
+                }
                 r.readAsDataURL(file);
             }
         }
