@@ -582,7 +582,11 @@
     </div>
 
         <script>
-        class SmartScrollWaterfall {
+        /**
+         * 高性能瀑布流实现 - 修复版
+         * 完整支持：图片、视频、对象文件（.7z等）、文本文件
+         */
+        class HighPerformanceWaterfall {
             constructor(container, options = {}) {
                 this.container = container;
                 this.columnCount = options.columnCount || 4;
@@ -590,35 +594,44 @@
                 this.cards = [];
                 this.visibleCards = new Set();
                 this.cardDataMap = new Map();
-
+                this.resizeObserver = null;
+                this.intersectionObserver = null;
+                this.columnHeights = [];
                 
-                
-                // 滚动状态追踪
-                this.scrollState = {
-                    lastScrollTop: 0,
-                    lastScrollTime: Date.now(),
-                    velocity: 0,
-                    direction: 'none',
-                    isScrolling: false,
-                    scrollTimeout: null,
-                    fastScrollThreshold: options.fastScrollThreshold || 1.2, // px/ms
-                    loadDebounceTime: options.loadDebounceTime || 150
-                };
-                
-                // 加载队列
-                this.loadQueue = { high: [], normal: [] };
-                this.isProcessingQueue = false;
-                this._reflowCheckPending = false;
-                // 配置
-                this.playThreshold = options.playThreshold || 0.5; // 50%即播放
-                this.fastScrollPlayThreshold = 0.85; // 快速滚动时85%才播，避免卡顿
-                this.lookaheadRatio = options.lookaheadRatio || 0.4; // 滚动方向前方40%
+                this.placeholderHeight = options.placeholderHeight || 200;
+                this.loadThreshold = options.loadThreshold || 0.1;
+                this.playThreshold = options.playThreshold || 0.6;
                 
                 this.init();
             }
             
+            // 获取文件图标
+            getFileIcon(type) {
+                if (type === 'image') return '🖼️';
+                if (type === 'video') return '🎬';
+                if (type === 'object') return '📦';
+                if (type === 'text') return '📄';
+                return '📎';
+            }
+            
+            // 获取文件类型显示名称
+            getFileTypeLabel(type, mime) {
+                if (type === 'image') return 'IMAGE';
+                if (type === 'video') return 'VIDEO';
+                if (type === 'object') {
+                    // 尝试从 mime 中提取扩展名，或使用通用标识
+                    if (mime && mime !== 'app/octet-stream') {
+                        const ext = mime.split('/').pop();
+                        if (ext && ext.length < 10) return ext.toUpperCase();
+                    }
+                    return 'FILE';
+                }
+                if (type === 'text') return 'TEXT';
+                return 'FILE';
+            }
+            
             init() {
-                this.resizeObserver = new ResizeObserver(() => {
+                this.resizeObserver = new ResizeObserver(entries => {
                     requestAnimationFrame(() => this.handleResize());
                 });
                 this.resizeObserver.observe(this.container);
@@ -627,171 +640,369 @@
                     (entries) => this.handleIntersection(entries),
                     {
                         root: null,
-                        rootMargin: '50px',
-                        threshold: [0, 0.25, 0.5, 0.75, 1.0]
+                        rootMargin: '100px',
+                        threshold: [0, 0.1, 0.5, 0.6, 1]
                     }
                 );
-                
-                // 绑定滚动监听
-                const scrollContainer = document.querySelector('.content-area') || window;
-                scrollContainer.addEventListener('scroll', () => this.handleScroll(), { passive: true });
                 
                 this.updateColumnCount();
             }
             
-            handleScroll() {
-                const now = Date.now();
-                const scrollTop = this.getScrollTop();
-                const deltaY = scrollTop - this.scrollState.lastScrollTop;
-                const deltaTime = now - this.scrollState.lastScrollTime;
+            updateColumnCount() {
+                const width = this.container.clientWidth;
+                if (width <= 500) this.columnCount = 1;
+                else if (width <= 800) this.columnCount = 2;
+                else if (width <= 1200) this.columnCount = 3;
+                else this.columnCount = 4;
                 
-                if (deltaTime > 0) {
-                    this.scrollState.velocity = Math.abs(deltaY) / deltaTime;
-                    this.scrollState.direction = deltaY > 0 ? 'down' : deltaY < 0 ? 'up' : 'none';
-                }
+                this.calculateLayout();
+            }
+            
+            handleResize() {
+                const oldCount = this.columnCount;
+                this.updateColumnCount();
                 
-                this.scrollState.lastScrollTop = scrollTop;
-                this.scrollState.lastScrollTime = now;
-                this.scrollState.isScrolling = true;
-                
-                clearTimeout(this.scrollState.scrollTimeout);
-                this.scrollState.scrollTimeout = setTimeout(() => {
-                    this.scrollState.isScrolling = false;
-                    this.scrollState.velocity = 0;
-                    this.processLoadQueue(); // 滚动停止后处理积压
-                }, this.scrollState.loadDebounceTime);
-                
-                // 快速滚动时立即暂停所有视频
-                if (this.scrollState.velocity > this.scrollState.fastScrollThreshold) {
-                    this.pauseAllVideos();
+                if (oldCount !== this.columnCount) {
+                    this.reflowAll();
+                } else {
+                    this.updateCardWidths();
                 }
             }
             
-            getScrollTop() {
-                const el = document.querySelector('.content-area');
-                return el ? el.scrollTop : (window.pageYOffset || document.documentElement.scrollTop);
+            calculateLayout() {
+                const containerWidth = this.container.clientWidth;
+                const totalGap = (this.columnCount - 1) * this.gap;
+                this.columnWidth = (containerWidth - totalGap) / this.columnCount;
+                this.columnHeights = new Array(this.columnCount).fill(0);
             }
             
-            pauseAllVideos() {
-                this.cards.forEach(card => {
-                    const video = card.querySelector('video');
-                    if (video && !video.paused) video.pause();
+            addCard(data) {
+                this.cardDataMap.set(data.id, data);
+                
+                const card = this.createCardElement(data);
+                this.cards.push(card);
+                this.container.appendChild(card);
+                
+                // 非媒体文件直接显示内容，不需要懒加载
+                if (data.type !== 'image' && data.type !== 'video') {
+                    this.renderFileCard(card, data);
+                } else {
+                    // 媒体文件先使用占位符高度
+                    const aspectRatio = data.aspectRatio || 0;
+                    const initialHeight = aspectRatio > 0 
+                        ? this.columnWidth / aspectRatio 
+                        : this.placeholderHeight;
+                    this.positionCard(card, initialHeight);
+                }
+                
+                this.intersectionObserver.observe(card);
+                return card;
+            }
+            
+            createCardElement(data) {
+                const card = document.createElement('div');
+                card.className = 'waterfall-card';
+                card.dataset.id = data.id;
+                card.dataset.type = data.type;
+                card.dataset.loaded = 'false';
+                card.dataset.index = data.index;
+                
+                card.style.cssText = `
+                    position: absolute;
+                    width: ${this.columnWidth}px;
+                    left: 0;
+                    top: 0;
+                    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+                    will-change: transform;
+                    contain: layout style paint;
+                `;
+                
+                const sizeText = data.size ? `${(data.size / 1024).toFixed(1)}KB` : '';
+                const icon = this.getFileIcon(data.type);
+                const typeLabel = this.getFileTypeLabel(data.type, data.mime);
+                
+                // 根据类型设置初始高度
+                const isMedia = data.type === 'image' || data.type === 'video';
+                const initialHeight = isMedia 
+                    ? (data.aspectRatio > 0 ? this.columnWidth / data.aspectRatio : this.placeholderHeight)
+                    : 160; // 固定高度给文件卡片
+                
+                card.dataset.expectedHeight = initialHeight;
+                
+                card.innerHTML = `
+                    <div class="card-inner" style="
+                        background: #f8fafc;
+                        border-radius: 8px;
+                        overflow: hidden;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                        height: ${initialHeight}px;
+                        position: relative;
+                        transition: all 0.3s ease;
+                    ">
+                        <!-- 占位符层 -->
+                        <div class="card-placeholder" style="
+                            position: absolute;
+                            inset: 0;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            justify-content: center;
+                            color: #94a3b8;
+                            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+                            z-index: 1;
+                        ">
+                            <div style="font-size: 2.5rem; margin-bottom: 4px;">${icon}</div>
+                            <div style="font-size: 0.75rem; font-weight: 500;">${sizeText}</div>
+                            <div style="font-size: 0.65rem; margin-top: 2px; opacity: 0.7;">${typeLabel}</div>
+                        </div>
+                        
+                        <!-- 媒体/内容层 -->
+                        <div class="card-media" style="
+                            position: absolute;
+                            inset: 0;
+                            opacity: 0;
+                            transition: opacity 0.4s ease;
+                            z-index: 2;
+                        "></div>
+                        
+                        <!-- 信息覆盖层 -->
+                        <div class="card-overlay" style="
+                            position: absolute;
+                            bottom: 0;
+                            left: 0;
+                            right: 0;
+                            padding: 12px;
+                            background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent);
+                            color: white;
+                            font-size: 0.8rem;
+                            opacity: 0;
+                            transition: opacity 0.3s;
+                            pointer-events: none;
+                            z-index: 3;
+                        ">
+                            <div style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">
+                                ${data.filename}
+                            </div>
+                            <div style="font-size: 0.7rem; opacity: 0.9; margin-top: 3px; display: flex; align-items: center; gap: 6px;">
+                                <span style="background: rgba(255,255,255,0.2); padding: 1px 6px; border-radius: 4px; font-size: 0.65rem;">${typeLabel}</span>
+                                <span>${sizeText}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- 操作按钮 -->
+                        <button class="card-action card-delete" style="
+                            position: absolute;
+                            top: 8px;
+                            right: 8px;
+                            width: 28px;
+                            height: 28px;
+                            border-radius: 50%;
+                            background: rgba(0,0,0,0.6);
+                            color: white;
+                            border: none;
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            opacity: 0;
+                            transition: all 0.2s;
+                            font-size: 18px;
+                            z-index: 10;
+                            backdrop-filter: blur(4px);
+                        ">×</button>
+                        
+                        <button class="card-action card-download" style="
+                            position: absolute;
+                            top: 8px;
+                            right: 40px;
+                            width: 28px;
+                            height: 28px;
+                            border-radius: 50%;
+                            background: rgba(0,0,0,0.6);
+                            color: white;
+                            border: none;
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            opacity: 0;
+                            transition: all 0.2s;
+                            font-size: 12px;
+                            z-index: 10;
+                            backdrop-filter: blur(4px);
+                        ">⬇</button>
+                    </div>
+                `;
+                
+                // 悬停交互
+                const inner = card.querySelector('.card-inner');
+                const overlay = card.querySelector('.card-overlay');
+                const actions = card.querySelectorAll('.card-action');
+                
+                card.addEventListener('mouseenter', () => {
+                    overlay.style.opacity = '1';
+                    actions.forEach(btn => btn.style.opacity = '1');
+                    inner.style.transform = 'translateY(-4px)';
+                    inner.style.boxShadow = '0 20px 25px -5px rgba(0,0,0,0.15)';
                 });
-                // 清空普通队列，中段内容不加载
-                this.loadQueue.normal = [];
+                
+                card.addEventListener('mouseleave', () => {
+                    overlay.style.opacity = '0';
+                    actions.forEach(btn => btn.style.opacity = '0');
+                    inner.style.transform = '';
+                    inner.style.boxShadow = '';
+                });
+                
+                // 事件绑定
+                card.querySelector('.card-delete').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (data.onDelete) data.onDelete(data);
+                });
+                
+                card.querySelector('.card-download').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (data.onDownload) data.onDownload(data);
+                });
+                
+                card.addEventListener('click', () => {
+                    if (data.onClick) data.onClick(data);
+                });
+                
+                return card;
+            }
+            
+            // 专门处理非媒体文件（.7z, .txt 等）
+            renderFileCard(card, data) {
+                card.dataset.loaded = 'true';
+                const mediaContainer = card.querySelector('.card-media');
+                const placeholder = card.querySelector('.card-placeholder');
+                const inner = card.querySelector('.card-inner');
+                
+                const fileIcon = this.getFileIcon(data.type);
+                const fileType = this.getFileTypeLabel(data.type, data.mime);
+                const sizeText = data.size ? `${(data.size / 1024).toFixed(1)} KB` : '';
+                
+                // 文件卡片内容 - 大号图标 + 文件名
+                mediaContainer.innerHTML = `
+                    <div style="
+                        width: 100%; 
+                        height: 100%; 
+                        display: flex; 
+                        flex-direction: column; 
+                        align-items: center; 
+                        justify-content: center;
+                        background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+                        color: #475569;
+                        text-align: center;
+                        padding: 16px;
+                        box-sizing: border-box;
+                        gap: 8px;
+                    ">
+                        <div style="font-size: 3.5rem; filter: grayscale(0.2);">${fileIcon}</div>
+                        
+                        <div style="
+                            font-size: 0.85rem; 
+                            font-weight: 600; 
+                            color: #1e293b; 
+                            max-width: 100%; 
+                            overflow: hidden; 
+                            text-overflow: ellipsis; 
+                            white-space: nowrap;
+                            padding: 0 4px;
+                            line-height: 1.3;
+                        " title="${data.filename}">
+                            ${data.filename}
+                        </div>
+                        
+                        <div style="
+                            display: flex;
+                            align-items: center;
+                            gap: 6px;
+                            font-size: 0.7rem; 
+                            color: #64748b; 
+                            margin-top: 2px;
+                        ">
+                            <span style="
+                                background: #cbd5e1; 
+                                color: #475569;
+                                padding: 2px 8px; 
+                                border-radius: 4px; 
+                                font-weight: 600;
+                                font-size: 0.65rem;
+                                text-transform: uppercase;
+                            ">${fileType}</span>
+                            <span>${sizeText}</span>
+                        </div>
+                    </div>
+                `;
+                
+                // 固定高度
+                const fileHeight = 160;
+                inner.style.height = `${fileHeight}px`;
+                card.dataset.expectedHeight = fileHeight;
+                
+                // 直接显示，无需渐显（因为不需要加载时间）
+                mediaContainer.style.opacity = '1';
+                placeholder.style.display = 'none';
+                
+                this.positionCard(card, fileHeight);
+            }
+            
+            positionCard(card, height) {
+                const minHeight = Math.min(...this.columnHeights);
+                const columnIndex = this.columnHeights.indexOf(minHeight);
+                
+                const x = columnIndex * (this.columnWidth + this.gap);
+                const y = minHeight;
+                
+                card.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+                
+                this.columnHeights[columnIndex] = y + height + this.gap;
+                this.updateContainerHeight();
+            }
+            
+            updateContainerHeight() {
+                const maxHeight = Math.max(...this.columnHeights, 0);
+                this.container.style.height = `${maxHeight}px`;
             }
             
             handleIntersection(entries) {
-                const viewportHeight = window.innerHeight;
-                
                 entries.forEach(entry => {
                     const card = entry.target;
                     const ratio = entry.intersectionRatio;
+                    const isVisible = entry.isIntersecting;
                     
-                    if (!entry.isIntersecting) {
-                        this.visibleCards.delete(card.dataset.id);
-                        const video = card.querySelector('video');
-                        if (video) video.pause();
+                    // 非媒体文件不需要懒加载处理
+                    if (card.dataset.type !== 'image' && card.dataset.type !== 'video') {
                         return;
                     }
                     
-                    this.visibleCards.add(card.dataset.id);
-                    
-                    // 计算卡片在屏幕中的相对位置
-                    const rect = card.getBoundingClientRect();
-                    const cardCenter = rect.top + rect.height / 2;
-                    const screenCenter = viewportHeight / 2;
-                    const isInLookahead = this.isInLookaheadZone(cardCenter, screenCenter);
-                    const isFast = this.scrollState.velocity > this.scrollState.fastScrollThreshold;
-                    
-                    // 加载策略：快速滚动时只加载目标区域
-                    if (card.dataset.loaded === 'false') {
-                        if (isFast && !isInLookahead) return; // 快速滚动跳过中段
-                        
-                        // 视口内或目标区域高优先级
-                        if (ratio > 0.4 || isInLookahead) {
-                            this.enqueueLoad(card, 'high');
-                        } else if (!isFast) {
-                            this.enqueueLoad(card, 'normal');
+                    if (isVisible && ratio > this.loadThreshold) {
+                        if (card.dataset.loaded === 'false') {
+                            this.loadMedia(card);
                         }
-                    }
-                    
-                    // 播放策略
-                    if (card.dataset.type === 'video' && card.dataset.loaded === 'true') {
+                        
                         const video = card.querySelector('video');
-                        if (!video) return;
-                        
-                        // 快速滚动时提高阈值到85%，避免频繁切换
-                        const threshold = isFast ? this.fastScrollPlayThreshold : this.playThreshold;
-                        
-                        if (ratio >= threshold) {
-                            video.play().catch(() => {});
-                        } else {
-                            video.pause();
+                        if (video && ratio > this.playThreshold) {
+                            this.playVideo(video);
+                        } else if (video && ratio < this.playThreshold) {
+                            this.pauseVideo(video);
                         }
+                        
+                        card.style.contentVisibility = 'visible';
+                        this.visibleCards.add(card.dataset.id);
+                    } else {
+                        const video = card.querySelector('video');
+                        if (video) this.pauseVideo(video);
+                        
+                        if (ratio === 0) {
+                            card.style.contentVisibility = 'auto';
+                        }
+                        this.visibleCards.delete(card.dataset.id);
                     }
                 });
             }
             
-            // 判断是否在看向的区域
-            isInLookaheadZone(cardCenter, screenCenter) {
-                const dir = this.scrollState.direction;
-                const ahead = window.innerHeight * this.lookaheadRatio;
-                
-                if (dir === 'down') {
-                    return cardCenter > screenCenter - 100 && cardCenter < screenCenter + ahead;
-                } else if (dir === 'up') {
-                    return cardCenter < screenCenter + 100 && cardCenter > screenCenter - ahead;
-                }
-                return Math.abs(cardCenter - screenCenter) < 200; // 静止时看中心附近
-            }
-            
-            enqueueLoad(card, priority) {
-                const exists = [...this.loadQueue.high, ...this.loadQueue.normal].includes(card);
-                if (exists) return;
-                
-                this.loadQueue[priority].push(card);
-                
-                // 高优先级立即处理，普通队列等滚动停止
-                if (priority === 'high' && !this.isProcessingQueue) {
-                    this.processLoadQueue();
-                }
-            }
-            
-            async processLoadQueue() {
-                if (this.isProcessingQueue) return;
-                this.isProcessingQueue = true;
-                
-                // 先处理所有高优先级（视口内）
-                while (this.loadQueue.high.length > 0) {
-                    const card = this.loadQueue.high.shift();
-                    await this.loadMediaAsync(card);
-                }
-                
-                // 滚动停止后再处理普通队列
-                while (this.loadQueue.normal.length > 0 && !this.scrollState.isScrolling) {
-                    const card = this.loadQueue.normal.shift();
-                    await this.loadMediaAsync(card);
-                }
-                
-                this.isProcessingQueue = false;
-                
-                // 如果普通队列还有且已停止滚动，继续处理
-                if (this.loadQueue.normal.length > 0 && !this.scrollState.isScrolling) {
-                    setTimeout(() => this.processLoadQueue(), 50);
-                }
-            }
-            
-            loadMediaAsync(card) {
-                return new Promise(resolve => {
-                    requestAnimationFrame(() => {
-                        this.loadMedia(card);
-                        setTimeout(resolve, 20); // 每帧让出20ms给渲染
-                    });
-                });
-            }
-            
-            // 加载媒体逻辑（复用之前的代码）
             loadMedia(card) {
                 const data = this.cardDataMap.get(card.dataset.id);
                 if (!data) return;
@@ -807,13 +1018,16 @@
                     img.decoding = 'async';
                     
                     img.onload = () => {
-                        const ratio = img.naturalWidth / img.naturalHeight;
-                        const h = this.columnWidth / ratio;
-                        inner.style.height = `${h}px`;
-                        this.updateCardHeight(card, h);
+                        const aspectRatio = img.naturalWidth / img.naturalHeight;
+                        const newHeight = this.columnWidth / aspectRatio;
                         
-                        mediaContainer.style.opacity = '1';
-                        setTimeout(() => placeholder.style.opacity = '0', 100);
+                        inner.style.height = `${newHeight}px`;
+                        this.updateCardHeight(card, newHeight);
+                        
+                        requestAnimationFrame(() => {
+                            mediaContainer.style.opacity = '1';
+                            setTimeout(() => placeholder.style.opacity = '0', 100);
+                        });
                     };
                     
                     img.src = `data:${data.mime};base64,${data.data}`;
@@ -828,21 +1042,19 @@
                     video.preload = 'metadata';
                     
                     video.onloadedmetadata = () => {
-                        const ratio = video.videoWidth / video.videoHeight;
-                        const h = this.columnWidth / ratio;
-                        inner.style.height = `${h}px`;
-                        this.updateCardHeight(card, h);
+                        const aspectRatio = video.videoWidth / video.videoHeight;
+                        const newHeight = this.columnWidth / aspectRatio;
                         
-                        mediaContainer.style.opacity = '1';
-                        setTimeout(() => placeholder.style.opacity = '0', 100);
+                        inner.style.height = `${newHeight}px`;
+                        this.updateCardHeight(card, newHeight);
                         
-                        // 加载完成检查是否应该播放
+                        requestAnimationFrame(() => {
+                            mediaContainer.style.opacity = '1';
+                            setTimeout(() => placeholder.style.opacity = '0', 100);
+                        });
+                        
                         if (this.visibleCards.has(card.dataset.id)) {
-                            const entry = this.intersectionObserver.takeRecords()
-                                .find(r => r.target === card);
-                            if (entry && entry.intersectionRatio >= this.playThreshold) {
-                                video.play().catch(() => {});
-                            }
+                            this.playVideo(video);
                         }
                     };
                     
@@ -854,197 +1066,50 @@
             updateCardHeight(card, newHeight) {
                 const idx = this.cards.indexOf(card);
                 if (idx === -1) return;
+                
                 this.columnHeights.fill(0);
+                
                 for (let i = 0; i < this.cards.length; i++) {
                     const c = this.cards[i];
                     const inner = c.querySelector('.card-inner');
                     const h = c.dataset.loaded === 'true' 
                         ? parseFloat(inner.style.height) 
-                        : parseFloat(c.dataset.expectedHeight) || 200;
+                        : parseFloat(c.dataset.expectedHeight) || this.placeholderHeight;
+                    
                     this.positionCard(c, h);
-                }
-                
-                // 关键修复：布局变化后主动检查视口内应加载的卡片
-                this.scheduleReflowCheck();
-            }
-            // 新增：用 rAF 防抖，同一帧内多次重排只检查一次
-            scheduleReflowCheck() {
-                if (this._reflowCheckPending) return;
-                this._reflowCheckPending = true;
-                requestAnimationFrame(() => {
-                    this._reflowCheckPending = false;
-                    this.checkVisibleAfterReflow();
-                });
-            }
-            checkVisibleAfterReflow() {
-                const viewportHeight = window.innerHeight;
-
-                for (const card of this.cards) {
-                    if (card.dataset.loaded === 'true') continue;
-
-                    const rect = card.getBoundingClientRect();
-                    // 卡片现在在视口内 → 立即高优先级加载
-                    if (rect.top < viewportHeight && rect.bottom > 0) {
-                        this.enqueueLoad(card, 'high');
-                    }
-                }
-            }
-
-            
-            // 复用之前的布局方法...
-            positionCard(card, height) {
-                const minHeight = Math.min(...this.columnHeights);
-                const columnIndex = this.columnHeights.indexOf(minHeight);
-                const x = columnIndex * (this.columnWidth + this.gap);
-                const y = minHeight;
-                
-                card.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-                this.columnHeights[columnIndex] = y + height + this.gap;
-                this.updateContainerHeight();
-            }
-            
-            updateContainerHeight() {
-                const maxHeight = Math.max(...this.columnHeights, 0);
-                this.container.style.height = `${maxHeight}px`;
-            }
-            
-            updateColumnCount() {
-                const width = this.container.clientWidth;
-                if (width <= 500) this.columnCount = 1;
-                else if (width <= 800) this.columnCount = 2;
-                else if (width <= 1200) this.columnCount = 3;
-                else this.columnCount = 4;
-                
-                const totalGap = (this.columnCount - 1) * this.gap;
-                this.columnWidth = (this.container.clientWidth - totalGap) / this.columnCount;
-                this.columnHeights = new Array(this.columnCount).fill(0);
-            }
-            
-            handleResize() {
-                const old = this.columnCount;
-                this.updateColumnCount();
-                if (old !== this.columnCount) {
-                    this.reflowAll();
-                } else {
-                    this.cards.forEach(c => c.style.width = `${this.columnWidth}px`);
-                    this.reflowAll();
                 }
             }
             
             reflowAll() {
+                this.calculateLayout();
                 this.columnHeights.fill(0);
+                
                 this.cards.forEach(card => {
+                    card.style.width = `${this.columnWidth}px`;
                     const inner = card.querySelector('.card-inner');
-                    const h = parseFloat(inner.style.height) || parseFloat(card.dataset.expectedHeight) || 200;
+                    const h = parseFloat(inner.style.height) || parseFloat(card.dataset.expectedHeight) || this.placeholderHeight;
                     this.positionCard(card, h);
                 });
             }
             
-            // 复用之前的卡片创建和文件渲染方法...
-            addCard(data) {
-                this.cardDataMap.set(data.id, data);
-                const card = this.createCardElement(data);
-                this.cards.push(card);
-                this.container.appendChild(card);
-                
-                const isMedia = data.type === 'image' || data.type === 'video';
-                const h = isMedia 
-                    ? (data.aspectRatio > 0 ? this.columnWidth / data.aspectRatio : 200)
-                    : 160;
-                
-                card.dataset.expectedHeight = h;
-                
-                if (!isMedia) {
-                    this.renderFileCard(card, data);
-                } else {
-                    this.positionCard(card, h);
+            updateCardWidths() {
+                this.calculateLayout();
+                this.cards.forEach(card => {
+                    card.style.width = `${this.columnWidth}px`;
+                });
+                this.reflowAll();
+            }
+            
+            playVideo(video) {
+                if (video.paused && video.readyState >= 2) {
+                    video.play().catch(() => {});
                 }
-                
-                this.intersectionObserver.observe(card);
-                return card;
             }
             
-            createCardElement(data) {
-                const card = document.createElement('div');
-                card.className = 'waterfall-card';
-                card.dataset.id = data.id;
-                card.dataset.type = data.type;
-                card.dataset.loaded = 'false';
-                card.dataset.index = data.index;
-                
-                card.style.cssText = `position:absolute;width:${this.columnWidth}px;left:0;top:0;transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);will-change:transform;contain:layout style paint;`;
-                
-                const icon = data.type === 'image' ? '🖼️' : data.type === 'video' ? '🎬' : data.type === 'object' ? '📦' : '📄';
-                const size = data.size ? `${(data.size/1024).toFixed(1)}KB` : '';
-                const isMedia = data.type === 'image' || data.type === 'video';
-                const h = isMedia ? (data.aspectRatio > 0 ? this.columnWidth/data.aspectRatio : 200) : 160;
-                
-                card.innerHTML = `
-                    <div class="card-inner" style="background:#f8fafc;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);height:${h}px;position:relative;transition:all 0.3s;">
-                        <div class="card-placeholder" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);z-index:1;">
-                            <div style="font-size:2.5rem;margin-bottom:4px;">${icon}</div>
-                            <div style="font-size:0.75rem;font-weight:500;">${size}</div>
-                        </div>
-                        <div class="card-media" style="position:absolute;inset:0;opacity:0;transition:opacity 0.4s;z-index:2;"></div>
-                        <div class="card-overlay" style="position:absolute;bottom:0;left:0;right:0;padding:12px;background:linear-gradient(to top,rgba(0,0,0,0.8),transparent);color:white;font-size:0.8rem;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:3;">
-                            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${data.filename}</div>
-                        </div>
-                        <button class="card-delete" style="position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.6);color:white;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:all 0.2s;z-index:10;">×</button>
-                    </div>
-                `;
-                
-                const inner = card.querySelector('.card-inner');
-                const overlay = card.querySelector('.card-overlay');
-                const delBtn = card.querySelector('.card-delete');
-                
-                card.addEventListener('mouseenter', () => {
-                    overlay.style.opacity = '1';
-                    delBtn.style.opacity = '1';
-                    inner.style.transform = 'translateY(-4px)';
-                    inner.style.boxShadow = '0 20px 25px -5px rgba(0,0,0,0.15)';
-                });
-                
-                card.addEventListener('mouseleave', () => {
-                    overlay.style.opacity = '0';
-                    delBtn.style.opacity = '0';
-                    inner.style.transform = '';
-                    inner.style.boxShadow = '';
-                });
-                
-                delBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    if (data.onDelete) data.onDelete(data);
-                });
-                
-                card.addEventListener('click', () => {
-                    if (data.onClick) data.onClick(data);
-                });
-                
-                return card;
-            }
-            
-            renderFileCard(card, data) {
-                card.dataset.loaded = 'true';
-                const media = card.querySelector('.card-media');
-                const placeholder = card.querySelector('.card-placeholder');
-                const inner = card.querySelector('.card-inner');
-                
-                const icon = data.type === 'object' ? '📦' : '📄';
-                const size = data.size ? `${(data.size/1024).toFixed(1)} KB` : '';
-                
-                media.innerHTML = `
-                    <div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);color:#475569;text-align:center;padding:16px;gap:8px;">
-                        <div style="font-size:3rem;">${icon}</div>
-                        <div style="font-size:0.8rem;font-weight:600;color:#1e293b;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${data.filename}</div>
-                        <div style="font-size:0.7rem;color:#64748b;">${size}</div>
-                    </div>
-                `;
-                
-                inner.style.height = '160px';
-                card.dataset.expectedHeight = '160';
-                media.style.opacity = '1';
-                placeholder.style.display = 'none';
-                this.positionCard(card, 160);
+            pauseVideo(video) {
+                if (!video.paused) {
+                    video.pause();
+                }
             }
             
             removeCard(card) {
@@ -1053,24 +1118,32 @@
                     this.cards.splice(idx, 1);
                     this.cardDataMap.delete(card.dataset.id);
                     this.intersectionObserver.unobserve(card);
+                    
                     card.style.opacity = '0';
-                    setTimeout(() => {
-                        card.remove();
-                        this.reflowAll();
-                    }, 300);
+                    card.style.transform += ' scale(0.8)';
+                    setTimeout(() => card.remove(), 300);
+                    
+                    setTimeout(() => this.reflowAll(), 50);
                 }
             }
             
             clear() {
-                this.cards.forEach(c => this.intersectionObserver.unobserve(c));
+                this.cards.forEach(card => this.intersectionObserver.unobserve(card));
                 this.cards = [];
                 this.cardDataMap.clear();
                 this.visibleCards.clear();
                 this.container.innerHTML = '';
                 this.columnHeights.fill(0);
-                this.loadQueue = { high: [], normal: [] };
+                this.container.style.height = '0px';
+            }
+            
+            destroy() {
+                this.resizeObserver?.disconnect();
+                this.intersectionObserver?.disconnect();
+                this.clear();
             }
         }
+        
         </script>
         <script>
 
@@ -1450,13 +1523,9 @@
             resPlaceholder.style.display = 'none';
             
             if (!window.waterfallInstance) {
-                window.waterfallInstance = new SmartScrollWaterfall(container, {
+                window.waterfallInstance = new HighPerformanceWaterfall(container, {
                     gap: 15,
-                    placeholderHeight: 220,
-                    playThreshold: 0.5,        // 半屏即播放
-                    fastScrollThreshold: 10,  // 超过此速度视为快速滚动(px/ms)
-                    loadDebounceTime: 200,     // 停止滚动后200ms开始加载积压
-                    lookaheadRatio: 0.4        // 滚动方向前方40%屏幕优先加载
+                    placeholderHeight: 220
                 });
             } else {
                 window.waterfallInstance.clear();
