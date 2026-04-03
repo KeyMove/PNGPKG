@@ -1,0 +1,2671 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高级图片混淆与资源管理器</title>
+    <style>
+        :root {
+            --primary-color: #3b82f6;
+            --primary-hover: #2563eb;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-sub: #64748b;
+            --border-color: #e2e8f0;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --radius: 12px;
+            --header-height: 50px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; outline: none; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        header { text-align: center; margin-bottom: 20px; max-width: 800px; }
+        h1 { font-size: 1.5rem; margin-bottom: 8px; font-weight: 700; color: var(--text-main); }
+        p.subtitle { color: var(--text-sub); font-size: 0.9rem; line-height: 1.4; }
+
+        .app-container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            width: 100%;
+            max-width: 1400px;
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            height: 85vh;
+        }
+
+        /* Sidebar (Controls) */
+        .sidebar {
+            padding: 20px;
+            background: #f1f5f9;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+            color: var(--text-sub); font-weight: 700; margin-bottom: 8px;
+            border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;
+        }
+
+        /* Upload Area */
+        .upload-area {
+            border: 2px dashed var(--border-color); border-radius: 8px;
+            padding: 20px 10px; text-align: center; cursor: pointer;
+            transition: all 0.2s; background: white; position: relative;
+        }
+        .upload-area:hover, .upload-area.drag-over { border-color: var(--primary-color); background: #eff6ff; }
+        .upload-area input {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; cursor: pointer;
+        }
+        .upload-icon { font-size: 24px; margin-bottom: 8px; color: var(--primary-color); }
+        .upload-text { font-size: 0.85rem; color: var(--text-sub); line-height: 1.4; }
+
+        /* Buttons */
+        .btn {
+            width: 100%; padding: 10px; border: none; border-radius: 8px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s; font-size: 0.9rem;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        }
+        .btn:active { transform: translateY(1px); }
+        .btn-primary { background: var(--primary-color); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-secondary { background: white; border: 1px solid var(--border-color); color: var(--text-main); }
+        .btn-secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Offset Controls */
+        .offset-controls {
+            background: white; padding: 12px; border-radius: 8px;
+            border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px;
+        }
+        .offset-row { display: flex; align-items: center; gap: 8px; }
+        input[type="range"] { flex: 1; cursor: pointer; accent-color: var(--primary-color); }
+        input[type="number"] {
+            width: 70px; padding: 6px; border: 1px solid var(--border-color);
+            border-radius: 6px; font-size: 0.5rem; text-align: center;
+        }
+        .offset-value-text { font-size: 0.7rem; color: var(--text-sub); text-align: right; }
+
+        /* Status */
+        .status-bar { margin-top: auto; padding: 10px; background: #334155; color: white; border-radius: 6px; font-size: 0.8rem; text-align: center; }
+
+        /* Right Side Content Area */
+        .content-area {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            background-color: #e2e8f0;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        /* Top Toolbar / Toggle Bar */
+        .view-toolbar {
+            height: var(--header-height);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(8px);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            justify-content: space-between;
+            z-index: 10;
+        }
+
+        .toggle-group {
+            display: flex;
+            background: #e2e8f0;
+            padding: 4px;
+            border-radius: 8px;
+        }
+
+        .toggle-btn {
+            padding: 6px 16px;
+            border: none;
+            background: transparent;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-sub);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .toggle-btn.active {
+            background: white;
+            color: var(--primary-color);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .toggle-btn:hover:not(.active) { color: var(--text-main); }
+
+        /* View Layers */
+        .view-layer {
+            position: absolute;
+            top: var(--header-height);
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: none;
+            flex-direction: column;
+            padding: 20px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .view-layer.active-view { display: flex; }
+
+        /* Main Image View */
+        .image-wrapper {
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            position: relative;
+        }
+        .image-wrapper.drag-over-main {
+            box-shadow: inset 0 0 0 4px var(--primary-color);
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        /* 手势方向样式 */
+        .image-wrapper.drag-over-gesture-ltr {
+            box-shadow: inset 0 0 0 4px #22c55e !important; /* 绿色 - 还原 */
+            background: rgba(34, 197, 94, 0.1) !important;
+        }
+
+        .image-wrapper.drag-over-gesture-rtl {
+            box-shadow: inset 0 0 0 4px #f63b44 !important; /* 红色 - 混淆 */
+            background: rgba(246, 59, 68, 0.1) !important;
+        }
+        .image-wrapper img {
+            max-width: 100%; max-height: 100%;
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.2);
+            border-radius: 4px;
+            object-fit: contain;
+        }
+
+        /* Clear Button for Main Image */
+        .main-clear-btn {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(0,0,0,0.5); color: white;
+            border: none; width: 32px; height: 32px; border-radius: 50%;
+            cursor: pointer; display: none; align-items: center; justify-content: center;
+            z-index: 5; font-size: 18px; font-weight: bold; transition: background 0.2s;
+        }
+        .main-clear-btn:hover { background: #ef4444; }
+        /* 新增：复制按钮样式 */
+        .main-copy-btn {
+            position: absolute; top: 10px; right: 50px;  /* 在清除按钮左侧 */
+            background: rgba(0,0,0,0.5); color: white;
+            border: none; width: 32px; height: 32px; border-radius: 50%;
+            cursor: pointer; display: none; align-items: center; justify-content: center;
+            z-index: 5; font-size: 14px; transition: all 0.2s;
+        }
+        .main-copy-btn:hover { 
+            background: var(--primary-color); 
+            transform: scale(1.1);
+        }
+        .image-wrapper:has(img[src]) .main-clear-btn { display: flex; }
+        .image-wrapper:has(img[src]) .main-copy-btn { display: flex; }
+
+        /* 新增：复制按钮样式 */
+        .main-paste-btn {
+            position: absolute; top: 10px; left: 10px;  /* 在清除按钮左侧 */
+            background: rgba(0,0,0,0.5); color: white;
+            border: none; width: 32px; height: 32px; border-radius: 50%;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            z-index: 5; font-size: 14px; transition: all 0.2s;
+        }
+        .main-paste-btn:hover { 
+            background: var(--primary-color); 
+            transform: scale(1.1);
+        }
+
+        /* Waterfall View */
+        .waterfall-container {
+            position: relative;
+            width: 100%;
+            min-height: 100%;
+            padding-bottom: 40px;
+            /* 移除 column-count 相关属性 */
+        }
+        .waterfall-container.drag-over-waterfall {
+            background: rgba(59, 130, 246, 0.05);
+            border-radius: 8px;
+            border: dashed #7df;
+        }
+
+        @media (max-width: 1200px) { .waterfall-container { column-count: 3; } }
+        @media (max-width: 800px) { .waterfall-container { column-count: 2; } }
+        @media (max-width: 500px) { .waterfall-container { 
+            column-count: auto;  /* 或 initial */
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+         } }
+        /* Mobile */
+        @media (max-width: 768px) {
+            .app-container { grid-template-columns: 1fr; height: auto; }
+            .sidebar { border-right: none; border-bottom: 1px solid var(--border-color); }
+            .content-area { height: auto; min-height: 400px; }
+            .modal-nav-btn { width: 40px; height: 40px; font-size: 18px; }
+            #modal-prev { left: 10px; }
+            #modal-next { right: 10px; }
+        }
+
+        .waterfall-card {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: calc(25% - 11.25px); /* 默认4列，gap 15px */
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: transform 0.2s, box-shadow 0.2s, top 0.3s, left 0.3s;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            break-inside: auto; /* 移除之前的 break-inside */
+            margin-bottom: 0; /* 由JS控制间距 */
+        }
+        /* 响应式列宽 */
+        @media (max-width: 1200px) { 
+            .waterfall-card { width: calc(33.333% - 10px); } /* 3列 */
+        }
+        @media (max-width: 800px) { 
+            .waterfall-card { width: calc(50% - 7.5px); } /* 2列 */
+        }
+        @media (max-width: 500px) { 
+            .waterfall-card { width: 100%; } /* 1列 */
+        }
+        .waterfall-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            border-color: var(--primary-color);
+            z-index: 10;
+        }
+
+
+        /* 为保持圆角效果，在内部子元素添加 overflow */
+        .waterfall-media {
+            width: 100%;
+            background: #f1f5f9;
+            border-radius: 8px 8px 0 0;
+            overflow: hidden;
+            /* 默认最小高度，加载后会被内容撑开 */
+            min-height: 120px;
+        }
+        .waterfall-media img, .waterfall-media video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .waterfall-info {
+            padding: 10px;
+            background: white;
+            border-radius: 0 0 8px 8px;
+        }
+        .waterfall-placeholder {
+            height: 120px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f1f5f9;
+            color: #94a3b8;
+            font-size: 2rem;
+            gap: 8px;
+        }
+
+        .waterfall-placeholder-size {
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 500;
+        }
+        .waterfall-filename {
+            font-size: 0.8rem; font-weight: 600; color: var(--text-main);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .waterfall-type {
+            font-size: 0.7rem; color: var(--text-sub); margin-top: 2px;
+        }
+
+        .card-delete-btn {
+            position: absolute; top: 5px; right: 5px;
+            background: rgba(0,0,0,0.6); color: white;
+            border: none; width: 24px; height: 24px; border-radius: 50%;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.2s;
+        }
+        .waterfall-card:hover .card-delete-btn { opacity: 1; }
+        .card-delete-btn:hover { background: #ef4444; }
+
+        /* Empty State */
+        .empty-state {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            /* 保留 flex 用于图标/文本对齐 */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-sub);
+        }
+        .empty-icon { font-size: 48px; margin-bottom: 10px; opacity: 0.5; }
+
+        /* Loading */
+        .loading-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8); z-index: 50;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        .loading-overlay.active { opacity: 1; pointer-events: all; }
+        .spinner { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top: 3px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9); z-index: 2000;
+            display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s;
+        }
+        .modal-overlay.active { display: flex; opacity: 1; }
+        
+        .modal-content { 
+            width: 100%; height: 100%; 
+            position: relative; display: flex; align-items: center; justify-content: center; 
+            background: black; overflow: hidden; 
+        }
+        
+        /* Click-to-close layer (z-index: 1, covers everything) */
+        .modal-click-close-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 1;
+        }
+
+        .modal-body { 
+            width: 100%; height: 100%; 
+            overflow: hidden; display: flex; align-items: center; justify-content: center; 
+            pointer-events: none; /* Let clicks pass to the close layer */
+            z-index: 2;
+        }
+        /* Re-enable pointer events for media content */
+        .modal-body img, .modal-body video, .modal-body pre {
+            pointer-events: auto;
+            max-width: 90%; max-height: 90%; object-fit: contain;
+        }
+        .modal-body img, .modal-body video { box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        .modal-body pre {
+            color: #ccc; font-size: 1rem; overflow: auto; white-space: pre-wrap; word-break: break-all; 
+            background: #111; padding: 20px; border-radius: 8px;
+        }
+
+        /* Modal Navigation Buttons */
+        .modal-nav-btn {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            font-size: 24px; width: 50px; height: 50px; border-radius: 50%;
+            cursor: pointer; z-index: 20; display: flex; align-items: center; justify-content: center;
+            transition: all 0.3s; opacity: 0;
+        }
+        .modal-nav-btn:hover { background: rgba(255, 255, 255, 0.3); transform: translateY(-50%) scale(1.1); }
+        .modal-nav-btn:active { transform: translateY(-50%) scale(0.95); }
+        .modal-content:hover .modal-nav-btn { opacity: 1; }
+        #modal-prev { left: 20px; }
+        #modal-next { right: 20px; }
+        
+        .modal-close { 
+            position: absolute; top: 20px; right: 30px; 
+            background: rgba(0,0,0,0.5); border: none; width: 44px; height: 44px; border-radius: 50%; 
+            color: white; font-size: 24px; cursor: pointer; z-index: 30; display: flex; align-items: center; justify-content: center; 
+            transition: background 0.2s; 
+        }
+        .modal-close:hover { background: rgba(255,255,255,0.2); transform: rotate(90deg); }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .app-container { grid-template-columns: 1fr; height: auto; }
+            .sidebar { border-right: none; border-bottom: 1px solid var(--border-color); }
+            .content-area { height: 500px; }
+            .modal-nav-btn { width: 40px; height: 40px; font-size: 18px; }
+            #modal-prev { left: 10px; }
+            #modal-next { right: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>高级图片混淆与资源管理器</h1>
+        <p class="subtitle">Gilbert 像素混淆 | 拖拽式全屏瀑布流 | 智能资源打包</p>
+    </header>
+
+    <main class="app-container">
+        <!-- Sidebar Controls -->
+        <aside class="sidebar">
+            <!-- 1. Main File -->
+            <div>
+                <div class="section-title">1. 主文件 (图片/视频)</div>
+                <div class="upload-area" id="drop-zone">
+                    <input type="file" id="file-input" accept="image/*,video/*">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">拖入主图片或视频<br><span style="font-size:0.75em; opacity:0.7">视频自动取第一帧</span></div>
+                </div>
+            </div>
+
+            <!-- 2. Offset Control -->
+            <div>
+                <div class="section-title">2. 偏移设置</div>
+                <div class="offset-controls">
+                    <div class="offset-row">
+                        <input type="range" id="offset-slider" min="0" max="100" value="62" disabled>
+                        <input type="number" id="offset-input" value="0" disabled>
+                    </div>
+                    <div class="offset-value-text" id="offset-display">计算中...</div>
+                </div>
+            </div>
+
+            <!-- 3. Operations -->
+            <div>
+                <div class="section-title">3. 核心操作</div>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button id="btn-encrypt" class="btn btn-primary" disabled>🔒 混淆图片</button>
+                    <button id="btn-decrypt" class="btn btn-secondary" disabled>🔓 还原图片</button>
+                    <button id="btn-download" class="btn btn-secondary" disabled>⬇️ 下载结果 (含资源)</button>
+                </div>
+            </div>
+
+            <!-- 在核心操作后面添加 -->
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; user-select: none; margin-bottom: 6px;">
+                    <input type="checkbox" id="gesture-toggle" style="width: 16px; height: 16px; accent-color: var(--primary-color);">
+                    <span style="font-weight: 600;">使用鼠标手势拖拽</span>
+                </label>
+                <div style="font-size: 0.75rem; color: var(--text-sub); padding-left: 24px; line-height: 1.5; background: rgba(59, 130, 246, 0.05); padding: 8px; border-radius: 6px; margin-top: 4px;">
+                    <span style="color: #22c55e; font-weight: 600;">左→右（绿色）：</span>自动还原<br>
+                    <span style="color: #f63b44; font-weight: 600;">右→左（红色）：</span>自动混淆
+                </div>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; user-select: none; margin-bottom: 6px;">
+                    <input type="checkbox" id="autocopy" style="width: 16px; height: 16px; accent-color: var(--primary-color);">
+                    <span style="font-weight: 600;">混淆/还原后自动复制</span>
+                </label>
+            </div>
+
+            <!-- 4. Add Resource Button -->
+            <div>
+                <div class="section-title">4. 资源管理</div>
+                <label class="btn btn-secondary" style="position: relative;">
+                    <span>+ 上传资源文件</span>
+                    <input type="file" id="attachment-input" multiple style="position: absolute; inset: 0; opacity: 0; cursor: pointer;">
+                </label>
+            </div>
+
+            <div class="status-bar" id="status-bar">
+                <span id="busuanzi_container_site_pv">就绪><span id="busuanzi_value_site_pv"></span><</span>
+            </div>
+        </aside>
+
+        <!-- Right Content Area -->
+        <section class="content-area">
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" id="loading">
+                <div class="spinner"></div>
+                <p style="margin-top: 10px; color: #64748b; font-weight: 500;">处理中...</p>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="view-toolbar">
+                <div class="toggle-group">
+                    <button class="toggle-btn active" data-target="view-main">主图片预览</button>
+                    <button class="toggle-btn" data-target="view-resources">资源瀑布流</button>
+                </div>
+            </div>
+
+            <!-- View 1: Main Image -->
+            <div id="view-main" class="view-layer active-view">
+                <div class="image-wrapper" id="img-wrapper">
+                    <button class="main-clear-btn" id="main-clear-btn" title="清空图片">×</button>
+                    <button class="main-copy-btn" id="main-copy-btn" title="复制图片到剪贴板（不带资源）">📋</button>
+                    <button class="main-paste-btn" id="main-paste-btn" title="粘贴图片到主窗口">🖼️</button>
+                    <img id="display-img" alt="Main Image" style="display: none;">
+                    <div id="main-placeholder" class="empty-state">
+                        <div class="empty-icon">🖼️</div>
+                        <div>拖入\粘贴图片或视频到此处</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View 2: Resources Waterfall -->
+            <div id="view-resources" class="view-layer">
+                <div id="waterfall-container" class="waterfall-container">
+                    <!-- Dynamic Content -->
+                </div>
+                <div id="res-placeholder" class="empty-state">
+                    <div class="empty-icon">📂</div>
+                    <div>拖拽\粘贴文件到此处添加资源<br>或使用左侧 "上传资源文件"</div>
+                </div>
+            </div>
+            
+        </section>
+    </main>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close" id="modal-close">&times;</button>
+            <div class="modal-click-close-layer" id="modal-click-close-layer" title="点击关闭"></div>
+            <button class="modal-nav-btn" id="modal-prev">&lt;</button>
+            <button class="modal-nav-btn" id="modal-next">&gt;</button>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+
+        <script>
+        class SmartScrollWaterfall {
+            constructor(container, options = {}) {
+                this.container = container;
+                this.columnCount = options.columnCount || 4;
+                this.gap = options.gap || 16;
+                this.cards = [];
+                this.visibleCards = new Set();
+                this.cardDataMap = new Map();
+
+                
+                
+                // 滚动状态追踪
+                this.scrollState = {
+                    lastScrollTop: 0,
+                    lastScrollTime: Date.now(),
+                    velocity: 0,
+                    direction: 'none',
+                    isScrolling: false,
+                    scrollTimeout: null,
+                    fastScrollThreshold: options.fastScrollThreshold || 1.2, // px/ms
+                    loadDebounceTime: options.loadDebounceTime || 150
+                };
+                
+                // 加载队列
+                this.loadQueue = { high: [], normal: [] };
+                this.isProcessingQueue = false;
+                this._reflowCheckPending = false;
+                // 配置
+                this.playThreshold = options.playThreshold || 0.5; // 50%即播放
+                this.fastScrollPlayThreshold = 0.85; // 快速滚动时85%才播，避免卡顿
+                this.lookaheadRatio = options.lookaheadRatio || 0.4; // 滚动方向前方40%
+                
+                this.init();
+            }
+            
+            init() {
+                this.resizeObserver = new ResizeObserver(() => {
+                    requestAnimationFrame(() => this.handleResize());
+                });
+                this.resizeObserver.observe(this.container);
+                
+                this.intersectionObserver = new IntersectionObserver(
+                    (entries) => this.handleIntersection(entries),
+                    {
+                        root: null,
+                        rootMargin: '50px',
+                        threshold: [0, 0.25, 0.5, 0.75, 1.0]
+                    }
+                );
+                
+                // 绑定滚动监听
+                const scrollContainer = document.querySelector('.content-area') || window;
+                scrollContainer.addEventListener('scroll', () => this.handleScroll(), { passive: true });
+                
+                this.updateColumnCount();
+            }
+            
+            handleScroll() {
+                const now = Date.now();
+                const scrollTop = this.getScrollTop();
+                const deltaY = scrollTop - this.scrollState.lastScrollTop;
+                const deltaTime = now - this.scrollState.lastScrollTime;
+                
+                if (deltaTime > 0) {
+                    this.scrollState.velocity = Math.abs(deltaY) / deltaTime;
+                    this.scrollState.direction = deltaY > 0 ? 'down' : deltaY < 0 ? 'up' : 'none';
+                }
+                
+                this.scrollState.lastScrollTop = scrollTop;
+                this.scrollState.lastScrollTime = now;
+                this.scrollState.isScrolling = true;
+                
+                clearTimeout(this.scrollState.scrollTimeout);
+                this.scrollState.scrollTimeout = setTimeout(() => {
+                    this.scrollState.isScrolling = false;
+                    this.scrollState.velocity = 0;
+                    this.processLoadQueue(); // 滚动停止后处理积压
+                }, this.scrollState.loadDebounceTime);
+                
+                // 快速滚动时立即暂停所有视频
+                if (this.scrollState.velocity > this.scrollState.fastScrollThreshold) {
+                    this.pauseAllVideos();
+                }
+            }
+            
+            getScrollTop() {
+                const el = document.querySelector('.content-area');
+                return el ? el.scrollTop : (window.pageYOffset || document.documentElement.scrollTop);
+            }
+            
+            pauseAllVideos() {
+                this.cards.forEach(card => {
+                    const video = card.querySelector('video');
+                    if (video && !video.paused) video.pause();
+                });
+                // 清空普通队列，中段内容不加载
+                this.loadQueue.normal = [];
+            }
+            
+            handleIntersection(entries) {
+                const viewportHeight = window.innerHeight;
+                
+                entries.forEach(entry => {
+                    const card = entry.target;
+                    const ratio = entry.intersectionRatio;
+                    
+                    if (!entry.isIntersecting) {
+                        this.visibleCards.delete(card.dataset.id);
+                        const video = card.querySelector('video');
+                        if (video) video.pause();
+                        return;
+                    }
+                    
+                    this.visibleCards.add(card.dataset.id);
+                    
+                    // 计算卡片在屏幕中的相对位置
+                    const rect = card.getBoundingClientRect();
+                    const cardCenter = rect.top + rect.height / 2;
+                    const screenCenter = viewportHeight / 2;
+                    const isInLookahead = this.isInLookaheadZone(cardCenter, screenCenter);
+                    const isFast = this.scrollState.velocity > this.scrollState.fastScrollThreshold;
+                    
+                    // 加载策略：快速滚动时只加载目标区域
+                    if (card.dataset.loaded === 'false') {
+                        if (isFast && !isInLookahead) return; // 快速滚动跳过中段
+                        
+                        // 视口内或目标区域高优先级
+                        if (ratio > 0.4 || isInLookahead) {
+                            this.enqueueLoad(card, 'high');
+                        } else if (!isFast) {
+                            this.enqueueLoad(card, 'normal');
+                        }
+                    }
+                    
+                    // 播放策略
+                    if (card.dataset.type === 'video' && card.dataset.loaded === 'true') {
+                        const video = card.querySelector('video');
+                        if (!video) return;
+                        
+                        // 快速滚动时提高阈值到85%，避免频繁切换
+                        const threshold = isFast ? this.fastScrollPlayThreshold : this.playThreshold;
+                        
+                        if (ratio >= threshold) {
+                            video.play().catch(() => {});
+                        } else {
+                            video.pause();
+                        }
+                    }
+                });
+            }
+            
+            // 判断是否在看向的区域
+            isInLookaheadZone(cardCenter, screenCenter) {
+                const dir = this.scrollState.direction;
+                const ahead = window.innerHeight * this.lookaheadRatio;
+                
+                if (dir === 'down') {
+                    return cardCenter > screenCenter - 100 && cardCenter < screenCenter + ahead;
+                } else if (dir === 'up') {
+                    return cardCenter < screenCenter + 100 && cardCenter > screenCenter - ahead;
+                }
+                return Math.abs(cardCenter - screenCenter) < 200; // 静止时看中心附近
+            }
+            
+            enqueueLoad(card, priority) {
+                const exists = [...this.loadQueue.high, ...this.loadQueue.normal].includes(card);
+                if (exists) return;
+                
+                this.loadQueue[priority].push(card);
+                
+                // 高优先级立即处理，普通队列等滚动停止
+                if (priority === 'high' && !this.isProcessingQueue) {
+                    this.processLoadQueue();
+                }
+            }
+            
+            async processLoadQueue() {
+                if (this.isProcessingQueue) return;
+                this.isProcessingQueue = true;
+                
+                // 先处理所有高优先级（视口内）
+                while (this.loadQueue.high.length > 0) {
+                    const card = this.loadQueue.high.shift();
+                    await this.loadMediaAsync(card);
+                }
+                
+                // 滚动停止后再处理普通队列
+                while (this.loadQueue.normal.length > 0 && !this.scrollState.isScrolling) {
+                    const card = this.loadQueue.normal.shift();
+                    await this.loadMediaAsync(card);
+                }
+                
+                this.isProcessingQueue = false;
+                
+                // 如果普通队列还有且已停止滚动，继续处理
+                if (this.loadQueue.normal.length > 0 && !this.scrollState.isScrolling) {
+                    setTimeout(() => this.processLoadQueue(), 50);
+                }
+            }
+            
+            loadMediaAsync(card) {
+                return new Promise(resolve => {
+                    requestAnimationFrame(() => {
+                        this.loadMedia(card);
+                        setTimeout(resolve, 20); // 每帧让出20ms给渲染
+                    });
+                });
+            }
+            
+            // 加载媒体逻辑（复用之前的代码）
+            loadMedia(card) {
+                const data = this.cardDataMap.get(card.dataset.id);
+                if (!data) return;
+                
+                card.dataset.loaded = 'true';
+                const mediaContainer = card.querySelector('.card-media');
+                const placeholder = card.querySelector('.card-placeholder');
+                const inner = card.querySelector('.card-inner');
+                
+                if (data.type === 'image') {
+                    const img = new Image();
+                    img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+                    img.decoding = 'async';
+                    
+                    img.onload = () => {
+                        const ratio = img.naturalWidth / img.naturalHeight;
+                        const h = this.columnWidth / ratio;
+                        inner.style.height = `${h}px`;
+                        this.updateCardHeight(card, h);
+                        
+                        mediaContainer.style.opacity = '1';
+                        setTimeout(() => placeholder.style.opacity = '0', 100);
+                    };
+                    
+                    img.src = `data:${data.mime};base64,${data.data}`;
+                    mediaContainer.appendChild(img);
+                    
+                } else if (data.type === 'video') {
+                    const video = document.createElement('video');
+                    video.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+                    video.muted = true;
+                    video.playsInline = true;
+                    video.loop = true;
+                    video.preload = 'metadata';
+                    
+                    video.onloadedmetadata = () => {
+                        const ratio = video.videoWidth / video.videoHeight;
+                        const h = this.columnWidth / ratio;
+                        inner.style.height = `${h}px`;
+                        this.updateCardHeight(card, h);
+                        
+                        mediaContainer.style.opacity = '1';
+                        setTimeout(() => placeholder.style.opacity = '0', 100);
+                        
+                        // 加载完成检查是否应该播放
+                        if (this.visibleCards.has(card.dataset.id)) {
+                            const entry = this.intersectionObserver.takeRecords()
+                                .find(r => r.target === card);
+                            if (entry && entry.intersectionRatio >= this.playThreshold) {
+                                video.play().catch(() => {});
+                            }
+                        }
+                    };
+                    
+                    video.src = `data:${data.mime};base64,${data.data}`;
+                    mediaContainer.appendChild(video);
+                }
+            }
+            
+            updateCardHeight(card, newHeight) {
+                const idx = this.cards.indexOf(card);
+                if (idx === -1) return;
+                this.columnHeights.fill(0);
+                for (let i = 0; i < this.cards.length; i++) {
+                    const c = this.cards[i];
+                    const inner = c.querySelector('.card-inner');
+                    const h = c.dataset.loaded === 'true' 
+                        ? parseFloat(inner.style.height) 
+                        : parseFloat(c.dataset.expectedHeight) || 200;
+                    this.positionCard(c, h);
+                }
+                
+                // 关键修复：布局变化后主动检查视口内应加载的卡片
+                this.scheduleReflowCheck();
+            }
+            // 新增：用 rAF 防抖，同一帧内多次重排只检查一次
+            scheduleReflowCheck() {
+                if (this._reflowCheckPending) return;
+                this._reflowCheckPending = true;
+                requestAnimationFrame(() => {
+                    this._reflowCheckPending = false;
+                    this.checkVisibleAfterReflow();
+                });
+            }
+            checkVisibleAfterReflow() {
+                const viewportHeight = window.innerHeight;
+
+                for (const card of this.cards) {
+                    if (card.dataset.loaded === 'true') continue;
+
+                    const rect = card.getBoundingClientRect();
+                    // 卡片现在在视口内 → 立即高优先级加载
+                    if (rect.top < viewportHeight && rect.bottom > 0) {
+                        this.enqueueLoad(card, 'high');
+                    }
+                }
+            }
+
+            
+            // 复用之前的布局方法...
+            positionCard(card, height) {
+                const minHeight = Math.min(...this.columnHeights);
+                const columnIndex = this.columnHeights.indexOf(minHeight);
+                const x = columnIndex * (this.columnWidth + this.gap);
+                const y = minHeight;
+                
+                card.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+                this.columnHeights[columnIndex] = y + height + this.gap;
+                this.updateContainerHeight();
+            }
+            
+            updateContainerHeight() {
+                const maxHeight = Math.max(...this.columnHeights, 0);
+                this.container.style.height = `${maxHeight}px`;
+            }
+            
+            updateColumnCount() {
+                const width = this.container.clientWidth;
+                if (width <= 500) this.columnCount = 1;
+                else if (width <= 800) this.columnCount = 2;
+                else if (width <= 1200) this.columnCount = 3;
+                else this.columnCount = 4;
+                
+                const totalGap = (this.columnCount - 1) * this.gap;
+                this.columnWidth = (this.container.clientWidth - totalGap) / this.columnCount;
+                this.columnHeights = new Array(this.columnCount).fill(0);
+            }
+            
+            handleResize() {
+                const old = this.columnCount;
+                this.updateColumnCount();
+                if (old !== this.columnCount) {
+                    this.reflowAll();
+                } else {
+                    this.cards.forEach(c => c.style.width = `${this.columnWidth}px`);
+                    this.reflowAll();
+                }
+            }
+            
+            reflowAll() {
+                this.columnHeights.fill(0);
+                this.cards.forEach(card => {
+                    const inner = card.querySelector('.card-inner');
+                    const h = parseFloat(inner.style.height) || parseFloat(card.dataset.expectedHeight) || 200;
+                    this.positionCard(card, h);
+                });
+            }
+            
+            // 复用之前的卡片创建和文件渲染方法...
+            addCard(data) {
+                this.cardDataMap.set(data.id, data);
+                const card = this.createCardElement(data);
+                this.cards.push(card);
+                this.container.appendChild(card);
+                
+                const isMedia = data.type === 'image' || data.type === 'video';
+                const h = isMedia 
+                    ? (data.aspectRatio > 0 ? this.columnWidth / data.aspectRatio : 200)
+                    : 160;
+                
+                card.dataset.expectedHeight = h;
+                
+                if (!isMedia) {
+                    this.renderFileCard(card, data);
+                } else {
+                    this.positionCard(card, h);
+                }
+                
+                this.intersectionObserver.observe(card);
+                return card;
+            }
+            
+            createCardElement(data) {
+                const card = document.createElement('div');
+                card.className = 'waterfall-card';
+                card.dataset.id = data.id;
+                card.dataset.type = data.type;
+                card.dataset.loaded = 'false';
+                card.dataset.index = data.index;
+                
+                card.style.cssText = `position:absolute;width:${this.columnWidth}px;left:0;top:0;transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);will-change:transform;contain:layout style paint;`;
+                
+                const icon = data.type === 'image' ? '🖼️' : data.type === 'video' ? '🎬' : data.type === 'object' ? '📦' : '📄';
+                const size = data.size ? `${(data.size/1024).toFixed(1)}KB` : '';
+                const isMedia = data.type === 'image' || data.type === 'video';
+                const h = isMedia ? (data.aspectRatio > 0 ? this.columnWidth/data.aspectRatio : 200) : 160;
+                
+                card.innerHTML = `
+                    <div class="card-inner" style="background:#f8fafc;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);height:${h}px;position:relative;transition:all 0.3s;">
+                        <div class="card-placeholder" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);z-index:1;">
+                            <div style="font-size:2.5rem;margin-bottom:4px;">${icon}</div>
+                            <div style="font-size:0.75rem;font-weight:500;">${size}</div>
+                        </div>
+                        <div class="card-media" style="position:absolute;inset:0;opacity:0;transition:opacity 0.4s;z-index:2;"></div>
+                        <div class="card-overlay" style="position:absolute;bottom:0;left:0;right:0;padding:12px;background:linear-gradient(to top,rgba(0,0,0,0.8),transparent);color:white;font-size:0.8rem;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:3;">
+                            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${data.filename}</div>
+                        </div>
+                        <button class="card-delete" style="position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.6);color:white;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:all 0.2s;z-index:10;">×</button>
+                    </div>
+                `;
+                
+                const inner = card.querySelector('.card-inner');
+                const overlay = card.querySelector('.card-overlay');
+                const delBtn = card.querySelector('.card-delete');
+                
+                card.addEventListener('mouseenter', () => {
+                    overlay.style.opacity = '1';
+                    delBtn.style.opacity = '1';
+                    inner.style.transform = 'translateY(-4px)';
+                    inner.style.boxShadow = '0 20px 25px -5px rgba(0,0,0,0.15)';
+                });
+                
+                card.addEventListener('mouseleave', () => {
+                    overlay.style.opacity = '0';
+                    delBtn.style.opacity = '0';
+                    inner.style.transform = '';
+                    inner.style.boxShadow = '';
+                });
+                
+                delBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (data.onDelete) data.onDelete(data);
+                });
+                
+                card.addEventListener('click', () => {
+                    if (data.onClick) data.onClick(data);
+                });
+                
+                return card;
+            }
+            
+            renderFileCard(card, data) {
+                card.dataset.loaded = 'true';
+                const media = card.querySelector('.card-media');
+                const placeholder = card.querySelector('.card-placeholder');
+                const inner = card.querySelector('.card-inner');
+                
+                const icon = data.type === 'object' ? '📦' : '📄';
+                const size = data.size ? `${(data.size/1024).toFixed(1)} KB` : '';
+                
+                media.innerHTML = `
+                    <div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);color:#475569;text-align:center;padding:16px;gap:8px;">
+                        <div style="font-size:3rem;">${icon}</div>
+                        <div style="font-size:0.8rem;font-weight:600;color:#1e293b;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${data.filename}</div>
+                        <div style="font-size:0.7rem;color:#64748b;">${size}</div>
+                    </div>
+                `;
+                
+                inner.style.height = '160px';
+                card.dataset.expectedHeight = '160';
+                media.style.opacity = '1';
+                placeholder.style.display = 'none';
+                this.positionCard(card, 160);
+            }
+            
+            removeCard(card) {
+                const idx = this.cards.indexOf(card);
+                if (idx > -1) {
+                    this.cards.splice(idx, 1);
+                    this.cardDataMap.delete(card.dataset.id);
+                    this.intersectionObserver.unobserve(card);
+                    card.style.opacity = '0';
+                    setTimeout(() => {
+                        card.remove();
+                        this.reflowAll();
+                    }, 300);
+                }
+            }
+            
+            clear() {
+                this.cards.forEach(c => this.intersectionObserver.unobserve(c));
+                this.cards = [];
+                this.cardDataMap.clear();
+                this.visibleCards.clear();
+                this.container.innerHTML = '';
+                this.columnHeights.fill(0);
+                this.loadQueue = { high: [], normal: [] };
+            }
+        }
+        </script>
+        <script>
+
+
+        // 实例化布局管理器
+        let waterfallLayout = null;
+        /**
+         * PNG Information Handler - Updated with Chunk Extraction/Injection
+         */
+        class PngInfoHandler {
+            static crc32(data) {
+                const table = new Uint32Array(256);
+                for (let i = 0; i < 256; i++) {
+                    let c = i;
+                    for (let j = 0; j < 8; j++) { c = (c & 1) ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; }
+                    table[i] = c;
+                }
+                let crc = 0xFFFFFFFF;
+                for (let i = 0; i < data.length; i++) { crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8); }
+                return (crc ^ 0xFFFFFFFF) >>> 0;
+            }
+            static createTextChunk(keyword, text) {
+                const keywordBytes = new TextEncoder().encode(keyword);
+                const textBytes = new TextEncoder().encode(text);
+                const content = new Uint8Array(keywordBytes.length + 1 + textBytes.length);
+                content.set(keywordBytes, 0); content[keywordBytes.length] = 0; content.set(textBytes, keywordBytes.length + 1);
+                const length = content.length;
+                const type = new Uint8Array([116, 69, 88, 116]);
+                const chunk = new Uint8Array(4 + 4 + content.length);
+                const dv = new DataView(chunk.buffer);
+                dv.setUint32(0, length, false); chunk.set(type, 4); chunk.set(content, 8);
+                const crcData = new Uint8Array(4 + content.length);
+                crcData.set(type, 0); crcData.set(content, 4);
+                const crc = PngInfoHandler.crc32(crcData);
+                const result = new Uint8Array(chunk.length + 4);
+                result.set(chunk, 0); const crcDv = new DataView(result.buffer);
+                crcDv.setUint32(chunk.length, crc, false);
+                return result;
+            }
+            static readInfo(data,type=['image', 'video', 'object']) {
+                const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+                const pngSignature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+                for (let i = 0; i < 8; i++) if (data[i] !== pngSignature[i]) return;
+                const tEXt = 0x74455874;
+                let pos = 33;
+                let foundInfo = [];
+                while (pos < data.length - 8) {
+                    const len = view.getUint32(pos, false); pos += 4;
+                    const tag = view.getUint32(pos, false); pos += 4;
+                    if (tag != tEXt) { pos += len + 4; continue; }
+                    const textData = new Uint8Array(data.buffer, data.byteOffset + pos, len);
+                    let nullIndex = -1;
+                    for (let i = 0; i < textData.length; i++) { if (textData[i] === 0) { nullIndex = i; break; } }
+                    if (nullIndex !== -1) {
+                        const keywordArray = textData.slice(0, nullIndex);
+                        const textArray = textData.slice(nullIndex + 1);
+                        const keyword = new TextDecoder().decode(keywordArray);
+                        const data = new TextDecoder().decode(textArray);
+                        if (type){
+                            if (type.includes(keyword)) foundInfo.push({ keyword, data });
+                        }
+                        else{
+                            foundInfo.push({ keyword, data });
+                        }
+                    }
+                    pos += len + 4;
+                }
+                return foundInfo.length > 0 ? foundInfo : null;
+            }
+
+            static addMultipleInfo(pngData, attachments) {
+                let currentPng = pngData;
+                const pngSignature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+                for (let i = 0; i < 8; i++) { if (currentPng[i] !== pngSignature[i]) throw new Error("无效的PNG文件"); }
+                
+                for (const attach of attachments) {
+                    const chunk = PngInfoHandler.createTextChunk(attach.keyword, attach.data);
+                    const view = new DataView(currentPng.buffer, currentPng.byteOffset, currentPng.byteLength);
+                    const ihdrLength = view.getUint32(8, false);
+                    const ihdrEndPos = 8 + 4 + 4 + ihdrLength + 4;
+                    
+                    let insertPos = ihdrEndPos; let pos = ihdrEndPos;
+                    while (pos < currentPng.length - 8) {
+                        const chunkLen = view.getUint32(pos, false);
+                        const chunkType = String.fromCharCode(currentPng[pos+4], currentPng[pos+5], currentPng[pos+6], currentPng[pos+7]);
+                        if (chunkType === 'IEND') { insertPos = pos; break; }
+                        if (chunkType === 'tEXt') { pos += 4 + 4 + chunkLen + 4; continue; }
+                        pos += 4 + 4 + chunkLen + 4;
+                    }
+                    const beforeInsert = currentPng.slice(0, insertPos);
+                    const afterInsert = currentPng.slice(insertPos);
+                    const result = new Uint8Array(beforeInsert.length + chunk.length + afterInsert.length);
+                    result.set(beforeInsert, 0); result.set(chunk, beforeInsert.length); result.set(afterInsert, beforeInsert.length + chunk.length);
+                    currentPng = result;
+                }
+                return currentPng;
+            }
+        }
+
+        function gilbert2d(width, height) {
+            const coordinates = [];
+            if (width >= height) { generate2d(0, 0, width, 0, 0, height, coordinates); } else { generate2d(0, 0, 0, height, width, 0, coordinates); }
+            return coordinates;
+        }
+        function generate2d(x, y, ax, ay, bx, by, coordinates) {
+            const w = Math.abs(ax + ay), h = Math.abs(bx + by);
+            const dax = Math.sign(ax), day = Math.sign(ay), dbx = Math.sign(bx), dby = Math.sign(by);
+            if (h === 1) { for (let i = 0; i < w; i++) { coordinates.push([x, y]); x += dax; y += day; } return; }
+            if (w === 1) { for (let i = 0; i < h; i++) { coordinates.push([x, y]); x += dbx; y += dby; } return; }
+            let ax2 = Math.floor(ax / 2), ay2 = Math.floor(ay / 2), bx2 = Math.floor(bx / 2), by2 = Math.floor(by / 2);
+            if (2 * w > 3 * h) {
+                if ((Math.abs(ax2 + ay2) % 2) && (w > 2)) { ax2 += dax; ay2 += day; }
+                generate2d(x, y, ax2, ay2, bx, by, coordinates);
+                generate2d(x + ax2, y + ay2, ax - ax2, ay - ay2, bx, by, coordinates);
+            } else {
+                if ((Math.abs(bx2 + by2) % 2) && (h > 2)) { bx2 += dbx; by2 += dby; }
+                generate2d(x, y, bx2, by2, ax2, ay2, coordinates);
+                generate2d(x + bx2, y + by2, ax, ay, bx - bx2, by - by2, coordinates);
+                generate2d(x + (ax - dax) + (bx2 - dbx), y + (ay - day) + (by2 - dby),
+                    -bx2, -by2, -(ax - ax2), -(ay - ay2), coordinates);
+            }
+        }
+
+        // DOM Elements
+        const fileInput = document.getElementById('file-input');
+        const attachInput = document.getElementById('attachment-input');
+        const dropZone = document.getElementById('drop-zone');
+        const displayImg = document.getElementById('display-img');
+        const mainPlaceholder = document.getElementById('main-placeholder');
+        const imgWrapper = document.getElementById('img-wrapper'); 
+        const mainClearBtn = document.getElementById('main-clear-btn');
+        const mainCopyBtn = document.getElementById('main-copy-btn');  // 新增
+        
+        const btnEncrypt = document.getElementById('btn-encrypt');
+        const btnDecrypt = document.getElementById('btn-decrypt');
+        const btnDownload = document.getElementById('btn-download');
+        
+        const offsetSlider = document.getElementById('offset-slider');
+        const offsetInput = document.getElementById('offset-input');
+        const offsetDisplay = document.getElementById('offset-display');
+        const statusBar = document.getElementById('status-bar');
+        const loadingOverlay = document.getElementById('loading');
+        
+        const toggleBtns = document.querySelectorAll('.toggle-btn');
+        const viewMain = document.getElementById('view-main');
+        const viewResources = document.getElementById('view-resources');
+        const waterfallContainer = document.getElementById('waterfall-container');
+        const resPlaceholder = document.getElementById('res-placeholder');
+
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modalBody = document.getElementById('modal-body');
+        const modalClose = document.getElementById('modal-close');
+        const modalClickCloseLayer = document.getElementById('modal-click-close-layer');
+        const modalPrev = document.getElementById('modal-prev');
+        const modalNext = document.getElementById('modal-next');
+
+        const gestureToggle = document.getElementById('gesture-toggle');
+        const autocopy = document.getElementById('autocopy');
+        
+
+        // State
+        let currentCurve = null; let currentWidth = 0; let currentHeight = 0;
+        let currentAttachments = [];
+        let currentModalIndex = -1;
+        let sourceUnknownTextChunks = []; // Store raw unknown chunks from source image
+        let userHasModifiedResources = false; // Flag to track if user added new resources
+
+        // 新增：手势相关状态
+        let gestureStartX = null;
+        let currentGestureDirection = null; // 'ltr' | 'rtl'
+        let gestureDropTimer = null;
+
+
+        const mediaObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                const card = entry.target;
+                const mediaDiv = card.querySelector('.waterfall-media');
+                
+                if (entry.isIntersecting) {
+                    // 进入视口：加载实际媒体
+                    if (!mediaDiv.dataset.loaded) {
+                        const idx = parseInt(card.dataset.index);
+                        loadMediaLazy(idx, mediaDiv);
+                        mediaDiv.dataset.loaded = 'true';
+                    }
+                    // 恢复视频预加载
+                    const video = mediaDiv.querySelector('video');
+                    if (video) video.preload = 'metadata';
+                } else {
+                    // 离开视口：暂停视频释放解码内存
+                    const video = mediaDiv.querySelector('video');
+                    if (video && !video.paused) video.pause();
+                }
+            });
+        }, {
+            root: waterfallContainer,
+            rootMargin: '100px', // 提前100px开始加载
+            threshold: 0.05
+        });
+
+        // 手势设置持久化
+        function saveGestureSetting() {
+            localStorage.setItem('useDragGesture', gestureToggle.checked);
+            localStorage.setItem('autocopy', autocopy.checked);
+        }
+
+        function loadGestureSetting() {
+            const saved = localStorage.getItem('useDragGesture');
+            gestureToggle.checked = saved !== null ? (saved === 'true') : true; // 默认开启
+            const autocopysave = localStorage.getItem('autocopy');
+            autocopy.checked = autocopysave !== null ? (autocopysave === 'true') : false; // 默认开启
+        }
+
+        // Helpers
+        function setStatus(msg) { statusBar.querySelector('span').textContent = msg; }
+        function setLoading(isLoading) {
+            if (isLoading) loadingOverlay.classList.add('active');
+            else loadingOverlay.classList.remove('active');
+            btnEncrypt.disabled = isLoading || !displayImg.src;
+            btnDecrypt.disabled = isLoading || !displayImg.src;
+            btnDownload.disabled = isLoading || !displayImg.src;
+        }
+
+        function updateOffsetFromSlider() {
+            const val = parseInt(offsetSlider.value); const total = currentWidth * currentHeight;
+            let offset;
+            if (val === 62) { offset = Math.round((Math.sqrt(5) - 1) / 2 * total); offsetDisplay.textContent = `默认 (黄金分割)`; }
+            else { offset = Math.floor((val/100) * total); offsetDisplay.textContent = `自定义 (${val}%)`; }
+            offsetInput.value = offset; return offset;
+        }
+        function updateOffsetFromInput() {
+            let val = parseInt(offsetInput.value); const total = currentWidth * currentHeight;
+            if(val<0) val=0; if(val>total) val=total; offsetInput.value=val;
+            const pct = (val/total)*100; offsetSlider.value = pct; offsetDisplay.textContent = `指定偏移: ${val}`;
+            return val;
+        }
+        offsetSlider.addEventListener('input', updateOffsetFromSlider);
+        offsetInput.addEventListener('change', updateOffsetFromInput);
+
+        // View Toggling
+        function switchView(viewName) {
+            toggleBtns.forEach(btn => {
+                if(btn.dataset.target === viewName) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+            
+            if(viewName === 'view-main') {
+                viewMain.classList.add('active-view');
+                viewResources.classList.remove('active-view');
+            } else {
+                viewMain.classList.remove('active-view');
+                viewResources.classList.add('active-view');
+            }
+        }
+        toggleBtns.forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.target)));
+
+        function processSingleFile(file) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const bytes = new Uint8Array(evt.target.result);
+                        
+                        // 优化：分块转换base64，避免大数组栈溢出
+                        let binary = '';
+                        const chunkSize = 65536; // 64KB chunks
+                        for(let i = 0; i < bytes.length; i += chunkSize) {
+                            const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
+                            binary += String.fromCharCode.apply(null, chunk);
+                        }
+                        const base64Data = btoa(binary);
+                        
+                        let type='object', keyword='object', mime=file.type || 'app/octet-stream';
+                        if(file.type.startsWith('image/')) { type='image'; keyword='image'; }
+                        else if(file.type.startsWith('video/')) { type='video'; keyword='video'; }
+                        else if(file.type.startsWith('text/')) { type='text'; }
+
+                        currentAttachments.push({
+                            type, mime, data: base64Data, keyword, 
+                            filename: file.name,
+                            size: file.size // 记录大小用于显示
+                        });
+                    } catch (err) {
+                        console.error('处理文件失败:', file.name, err);
+                    }
+                    resolve();
+                };
+                reader.onerror = () => resolve(); // 容错
+                reader.readAsArrayBuffer(file);
+            });
+        }
+        // Attachments Logic
+        async function processAttachments(files) {
+            if(!files.length) return;
+            userHasModifiedResources = true;
+            
+            // 分批处理，每批3个，避免UI阻塞和内存峰值
+            const batchSize = 3;
+            const fileArray = Array.from(files);
+            let processed = 0;
+            
+            setStatus(`正在处理 0/${fileArray.length} 个文件...`);
+            
+            for (let i = 0; i < fileArray.length; i += batchSize) {
+                const batch = fileArray.slice(i, i + batchSize);
+                
+                // 并行处理当前批次
+                await Promise.all(batch.map(file => processSingleFile(file)));
+                
+                processed += batch.length;
+                setStatus(`已处理 ${processed}/${fileArray.length} 个文件...`);
+                
+                // 每处理一批更新一次瀑布流（增量渲染）
+                if (i === 0) {
+                    renderWaterfall(); // 第一批立即渲染
+                } else {
+                    // 后续批次只追加DOM，不重新渲染全部（可选优化）
+                    // 为简单起见，这里仍重新渲染，但分批处理已避免卡顿
+                    renderWaterfall();
+                }
+                
+                // 让出主线程，防止卡死
+                if (i + batchSize < fileArray.length) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+            }
+            
+            setStatus(`完成，共添加 ${fileArray.length} 个文件`);
+        }
+
+        function deleteAttachment(index) {
+            currentAttachments.splice(index, 1);
+            // Even if deleting, user is modifying the resource set
+            userHasModifiedResources = true;
+            renderWaterfall();
+        }
+
+        function downloadAttachment(attach) {
+            try {
+                const byteString = atob(attach.data);
+                const ab = new ArrayBuffer(byteString.length);
+                const ia = new Uint8Array(ab);
+                for (let i = 0; i < byteString.length; i++) {
+                    ia[i] = byteString.charCodeAt(i);
+                }
+                const blob = new Blob([ab], { type: attach.mime });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = attach.filename !== 'embedded' ? attach.filename : `download.${attach.mime.split('/')[1] || 'bin'}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                setStatus(`已下载: ${attach.filename}`);
+            } catch (err) {
+                console.error('下载失败:', err);
+                setStatus('下载失败');
+            }
+        }
+
+        function renderWaterfall() {
+            const container = document.getElementById('waterfall-container');
+            const resPlaceholder = document.getElementById('res-placeholder');
+            
+            if (currentAttachments.length === 0) {
+                resPlaceholder.style.display = 'flex';
+                if (window.waterfallInstance) {
+                    window.waterfallInstance.clear();
+                }
+                setStatus('资源列表为空');
+                return;
+            }
+            
+            resPlaceholder.style.display = 'none';
+            
+            if (!window.waterfallInstance) {
+                window.waterfallInstance = new SmartScrollWaterfall(container, {
+                    gap: 15,
+                    placeholderHeight: 220,
+                    playThreshold: 0.5,        // 半屏即播放
+                    fastScrollThreshold: 10,  // 超过此速度视为快速滚动(px/ms)
+                    loadDebounceTime: 200,     // 停止滚动后200ms开始加载积压
+                    lookaheadRatio: 0.4        // 滚动方向前方40%屏幕优先加载
+                });
+            } else {
+                window.waterfallInstance.clear();
+            }
+            
+            let index = 0;
+            const batchSize = 8;
+            
+            function processBatch() {
+                const batch = currentAttachments.slice(index, index + batchSize);
+                
+                batch.forEach((attach, idx) => {
+                    if (!attach.id) attach.id = Math.random().toString(36).substr(2, 9);
+                    
+                    let aspectRatio = 0;
+                    if (attach.width && attach.height) {
+                        aspectRatio = attach.width / attach.height;
+                    }
+                    
+                    window.waterfallInstance.addCard({
+                        id: attach.id,
+                        index: index + idx,
+                        type: attach.type,  // 'image' | 'video' | 'object' | 'text'
+                        filename: attach.filename,
+                        size: attach.size || 0,
+                        mime: attach.mime,
+                        data: attach.data,
+                        aspectRatio: aspectRatio,
+                        onDelete: (data) => {
+                            const arrIdx = currentAttachments.findIndex(a => a.id === data.id);
+                            if (arrIdx > -1) {
+                                currentAttachments.splice(arrIdx, 1);
+                                userHasModifiedResources = true;
+                                setStatus(`已删除 ${data.filename}，剩余 ${currentAttachments.length} 个文件`);
+                            }
+                        },
+                        onDownload: (data) => {
+                            const attach = currentAttachments.find(a => a.id === data.id);
+                            if (attach) downloadAttachment(attach);
+                        },
+                        onClick: (data) => {
+                            openModal(data.index);
+                        }
+                    });
+                });
+                
+                index += batchSize;
+                
+                if (index < currentAttachments.length) {
+                    requestAnimationFrame(processBatch);
+                } else {
+                    setStatus(`已加载 ${currentAttachments.length} 个资源`);
+                }
+            }
+            
+            processBatch();
+        }
+        
+        function createLazyCard(attach, idx) {
+            const card = document.createElement('div');
+            card.className = 'waterfall-card';
+            card.dataset.index = idx;
+            // 移除 opacity: 0，避免影响初始布局计算
+            card.style.transition = 'transform 0.2s, box-shadow 0.2s, top 0.3s, left 0.3s';
+            
+            const mediaDiv = document.createElement('div');
+            mediaDiv.className = 'waterfall-media';
+            mediaDiv.dataset.loaded = 'false';
+            
+            // 初始显示占位符
+            const sizeText = attach.size ? `${(attach.size / 1024).toFixed(0)}KB` : '';
+            mediaDiv.innerHTML = `
+                <div class="waterfall-placeholder">
+                    <div>${attach.type === 'image' ? '🖼️' : attach.type === 'video' ? '🎬' : '📄'}</div>
+                    <div class="waterfall-placeholder-size">${sizeText}</div>
+                </div>
+            `;
+            
+            // 点击打开模态框
+            card.onclick = (e) => {
+                if(e.target.closest('.card-delete-btn') || e.target.closest('.card-download-btn')) return;
+                openModal(idx);
+            };
+            
+            // 信息栏
+            const info = document.createElement('div');
+            info.className = 'waterfall-info';
+            info.innerHTML = `
+                <div class="waterfall-filename" title="${attach.filename}">${attach.filename}</div>
+                <div class="waterfall-type">${attach.type.toUpperCase()}</div>
+            `;
+            
+            // 删除按钮
+            const delBtn = document.createElement('button');
+            delBtn.className = 'card-delete-btn';
+            delBtn.innerHTML = '&times;';
+            delBtn.onclick = (e) => { 
+                e.stopPropagation(); 
+                deleteAttachment(idx); 
+            };
+            
+            // 下载按钮
+            const downloadBtn = document.createElement('button');
+            downloadBtn.className = 'card-download-btn';
+            downloadBtn.innerHTML = '⬇';
+            downloadBtn.title = '下载';
+            downloadBtn.style.cssText = `
+                position:absolute;top:5px;right:34px;background:rgba(0,0,0,0.6);
+                color:white;border:none;width:24px;height:24px;border-radius:50%;
+                cursor:pointer;display:flex;align-items:center;justify-content:center;
+                opacity:0;transition:opacity 0.2s;font-size:12px;z-index:2;
+            `;
+            downloadBtn.onmouseenter = () => downloadBtn.style.background = '#3b82f6';
+            downloadBtn.onmouseleave = () => downloadBtn.style.background = 'rgba(0,0,0,0.6)';
+            downloadBtn.onclick = (e) => { 
+                e.stopPropagation(); 
+                downloadAttachment(attach); 
+            };
+            
+            card.onmouseenter = () => { 
+                delBtn.style.opacity = '1'; 
+                downloadBtn.style.opacity = '1'; 
+            };
+            card.onmouseleave = () => { 
+                delBtn.style.opacity = '0'; 
+                downloadBtn.style.opacity = '0'; 
+            };
+            
+            card.appendChild(mediaDiv);
+            card.appendChild(info);
+            card.appendChild(delBtn);
+            card.appendChild(downloadBtn);
+            
+            return card;
+        }
+        
+        // 按需加载媒体内容
+        function loadMediaLazy(idx, container) {
+            const attach = currentAttachments[idx];
+            if (!attach || container.dataset.loaded === 'true') return;
+            
+            container.dataset.loaded = 'true';
+            container.innerHTML = '';
+            
+            if(attach.type === 'image') {
+                const img = new Image();
+                img.style.width = '100%';
+                img.style.display = 'block';
+                img.style.height = 'auto';
+                
+                img.onload = () => {
+                    // 图片加载完成后，强制立即重排（使用 RAF 确保 DOM 已更新）
+                    requestAnimationFrame(() => {
+                        if (waterfallLayout) waterfallLayout.layout();
+                    });
+                };
+                
+                img.src = `data:${attach.mime};base64,${attach.data}`;
+                container.appendChild(img);
+            } 
+            else if (attach.type === 'video') {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.controls = true;
+                video.muted = true;
+                video.playsInline = true;
+                video.autoplay = true;
+                video.style.width = '100%';
+                video.style.display = 'block';
+                
+                // 视频元数据加载后（知道真实高度了）立即重排
+                video.onloadedmetadata = () => {
+                    requestAnimationFrame(() => {
+                        if (waterfallLayout) waterfallLayout.layout();
+                    });
+                    // 尝试播放
+                    video.play().catch(() => {});
+                };
+                
+                video.src = `data:${attach.mime};base64,${attach.data}`;
+                container.appendChild(video);
+            } 
+            else {
+                container.innerHTML = `
+                    <div class="waterfall-placeholder" style="height:120px;">
+                        <div>📄</div>
+                        <div style="font-size:12px;">文本文件</div>
+                    </div>
+                `;
+            }
+        }
+
+        attachInput.addEventListener('change', (e) => {
+            processAttachments(e.target.files);
+            attachInput.value = ''; 
+            switchView('view-resources');
+        });
+
+        // Clear Main Image
+        mainClearBtn.addEventListener('click', () => {
+            displayImg.src = '';
+            displayImg.style.display = 'none';
+            mainPlaceholder.style.display = 'flex';
+            currentAttachments = [];
+            sourceUnknownTextChunks = [];
+            userHasModifiedResources = false;
+            renderWaterfall();
+            setStatus('已清空');
+            btnEncrypt.disabled = true;
+            btnDecrypt.disabled = true;
+            btnDownload.disabled = true;
+            offsetSlider.disabled = true;
+            offsetInput.disabled = true;
+        });
+
+        // 新增：复制图片功能
+        mainCopyBtn.addEventListener('click', async () => {
+            if (!displayImg.src) return;
+            
+            try {
+                setStatus('正在复制...');
+                
+                // 获取图片 blob
+                const response = await fetch(displayImg.src);
+                const blob = await response.blob();
+                
+                // 写入剪贴板
+                const item = new ClipboardItem({ [blob.type]: blob });
+                await navigator.clipboard.write([item]);
+                
+                setStatus('✅ 图片已复制到剪贴板');
+                
+                // 临时视觉反馈
+                const originalText = mainCopyBtn.textContent;
+                mainCopyBtn.textContent = '✓';
+                mainCopyBtn.style.background = '#22c55e';
+                
+                setTimeout(() => {
+                    mainCopyBtn.textContent = originalText;
+                    mainCopyBtn.style.background = '';
+                }, 1500);
+                
+            } catch (err) {
+                console.error('复制失败:', err);
+                setStatus('❌ 复制失败，请使用右键保存');
+                
+                // 降级方案：提示用户右键
+                // alert('自动复制失败，您可以：\n1. 右键点击图片选择"复制图片"\n2. 或先下载再复制');
+            }
+        });
+
+        // --- DRAG AND DROP ENHANCEMENTS ---
+
+        // 修改 Main Preview Drop 逻辑
+        imgWrapper.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            if (gestureToggle.checked && e.dataTransfer.types.includes('Files')) {
+                gestureStartX = e.clientX;
+                currentGestureDirection = null;
+            }
+            imgWrapper.classList.add('drag-over-main');
+        });
+        imgWrapper.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            
+            // 手势方向检测
+            if (gestureToggle.checked && gestureStartX !== null) {
+                const currentX = e.clientX;
+                const diff = currentX - gestureStartX;
+                const threshold = 20; // 20px 阈值防止抖动
+                
+                if (Math.abs(diff) > threshold) {
+                    gestureStartX=gestureStartX*0.9+currentX*0.1;
+                    // 移除基础样式，应用方向样式
+                    imgWrapper.classList.remove('drag-over-main');
+                    
+                    if (diff > threshold) {
+                        // 左到右 → 还原（绿色）
+                        if (currentGestureDirection !== 'ltr') {
+                            currentGestureDirection = 'ltr';
+                            imgWrapper.classList.remove('drag-over-gesture-rtl');
+                            imgWrapper.classList.add('drag-over-gesture-ltr');
+                            setStatus('检测到手势：左→右（将执行还原）');
+                        }
+                    } else if(diff < -threshold) {
+                        // 右到左 → 混淆（红色）
+                        if (currentGestureDirection !== 'rtl') {
+                            currentGestureDirection = 'rtl';
+                            imgWrapper.classList.remove('drag-over-gesture-ltr');
+                            imgWrapper.classList.add('drag-over-gesture-rtl');
+                            setStatus('检测到手势：右→左（将执行混淆）');
+                        }
+                    }
+                }
+            }
+        });
+
+        imgWrapper.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            // 检查是否真的离开了 wrapper（而不是进入子元素）
+            if (!imgWrapper.contains(e.relatedTarget)) {
+                resetGestureState();
+            }
+        });
+
+        imgWrapper.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const files = e.dataTransfer.files;
+            if (!files.length) {
+                resetGestureState();
+                return;
+            }
+            
+            const isImage = files[0].type.startsWith('image/');
+            
+            // 如果开启了手势且检测到了方向，且是图片文件
+            if (gestureToggle.checked && currentGestureDirection && isImage) {
+                setStatus(`手势确认：${currentGestureDirection === 'ltr' ? '左→右' : '右→左'}，图片加载完成后将自动执行...`);
+                
+                // 先正常加载图片，传入回调函数
+                handleMainFile(files[0], () => {
+                    // 图片加载完成后的回调
+                    setStatus(`图片加载完成，500ms后自动${currentGestureDirection === 'ltr' ? '还原' : '混淆'}...`);
+                    
+                    // 清除可能存在的旧定时器
+                    if (gestureDropTimer) clearTimeout(gestureDropTimer);
+                    
+                    // 图片加载完成后，再延迟500ms执行操作
+                    gestureDropTimer = setTimeout(() => {
+                        if (currentGestureDirection === 'ltr') {
+                            processImage('decrypt'); // 左→右：还原
+                            setStatus('✅ 手势触发：已还原图片');
+                        } else {
+                            processImage('encrypt'); // 右→左：混淆
+                            setStatus('✅ 手势触发：已混淆图片');
+                        }
+                        // 执行后清除方向状态
+                        // currentGestureDirection = null;
+                        gestureStartX = null;
+                    }, 100);
+                });
+                
+            } else {
+                // 普通模式或无法识别手势，直接加载（无回调）
+                handleMainFile(files[0]);
+            }
+            
+            // 清除视觉样式
+            imgWrapper.classList.remove('drag-over-main', 'drag-over-gesture-ltr', 'drag-over-gesture-rtl');
+        });
+
+        function resetGestureState() {
+            gestureStartX = null;
+            currentGestureDirection = null;
+            imgWrapper.classList.remove('drag-over-main', 'drag-over-gesture-ltr', 'drag-over-gesture-rtl');
+            if (gestureDropTimer) {
+                clearTimeout(gestureDropTimer);
+                gestureDropTimer = null;
+            }
+        }
+
+        // 初始化设置
+        gestureToggle.addEventListener('change', saveGestureSetting);
+        autocopy.addEventListener('change', saveGestureSetting);
+        loadGestureSetting();
+
+        // Waterfall Drop (Resources)
+        waterfallContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            waterfallContainer.classList.add('drag-over-waterfall');
+        });
+        waterfallContainer.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            waterfallContainer.classList.remove('drag-over-waterfall');
+        });
+        waterfallContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            waterfallContainer.classList.remove('drag-over-waterfall');
+            if(e.dataTransfer.files.length) {
+                processAttachments(e.dataTransfer.files);
+            }
+        });
+
+        // 修改函数签名，添加可选回调
+        function handleMainFile(file, onLoadComplete = null) {
+            if(!file) return;
+            if(file.type.startsWith('video/')) {
+                setStatus('提取视频帧...');
+                const video = document.createElement('video');
+                video.src = URL.createObjectURL(file);
+                video.muted = true; video.crossOrigin = 'anonymous';
+                video.onloadeddata = () => { video.currentTime = 0.1; };
+                video.onseeked = () => {
+                    const cvs = document.createElement('canvas');
+                    cvs.width = video.videoWidth || 640; cvs.height = video.videoHeight || 360;
+                    const ctx = cvs.getContext('2d'); ctx.drawImage(video,0,0);
+                    // 视频帧加载完成后触发回调
+                    loadMainImage(cvs.toDataURL('image/jpeg', 0.9), null, onLoadComplete);
+                    currentAttachments = [];
+                    userHasModifiedResources = false; 
+                    processAttachments([file]);
+                    URL.revokeObjectURL(video.src);
+                };
+                video.load();
+            } else if(file.type.startsWith('image/')) {
+                const r = new FileReader();
+                r.onload = (e) => {
+                    loadMainImage(e.target.result, file, onLoadComplete);
+                    if(file.type === 'image/gif'){
+                        setTimeout(() => {
+                            processAttachments([file]);
+                        }, 500);
+                    }
+                }
+                r.readAsDataURL(file);
+            }
+        }
+
+        function loadMainImage(url, fileObj=null, onComplete=null) {  // 添加 onComplete 参数
+            const img = new Image();
+            img.onload = () => {
+                currentWidth = img.width; currentHeight = img.height;
+                setTimeout(() => {
+                    currentCurve = gilbert2d(currentWidth, currentHeight);
+                    offsetSlider.max = currentWidth*currentHeight; offsetInput.max = offsetSlider.max;
+                    updateOffsetFromSlider();
+                    displayImg.src = url; displayImg.style.display = 'block'; mainPlaceholder.style.display = 'none';
+                    btnEncrypt.disabled = false; btnDecrypt.disabled = false; offsetSlider.disabled = false; offsetInput.disabled = false;
+
+                    const finishLoading = () => {
+                        userHasModifiedResources = false;
+                        setLoading(false);
+                        // 图片完全加载并处理完毕后，执行回调（用于手势延迟操作）
+                        if (onComplete) onComplete();
+                    };
+
+                    if(fileObj && fileObj.type.includes('image/')) {
+                        const r2 = new FileReader();
+                        r2.onload = (evt) => {
+                            const arrayBuffer = new Uint8Array(evt.target.result);
+                            const infos = PngInfoHandler.readInfo(arrayBuffer);
+                            if(!infos)
+                                sourceUnknownTextChunks = PngInfoHandler.readInfo(arrayBuffer,null);
+
+                            if(infos) {
+                                currentAttachments = [];
+                                infos.forEach(info => {
+                                    let type='text', mime='text/plain';
+                                    if(info.keyword==='image'){type='image'; mime='image/png';}
+                                    else if(info.keyword==='video'){type='video'; mime='video/mp4';}
+                                    currentAttachments.push({type, mime, data: info.data, keyword: info.keyword, filename:'embedded'});
+                                });
+                                renderWaterfall();
+                                setStatus('已加载嵌入资源');
+                            } else { 
+                                currentAttachments=[]; renderWaterfall(); 
+                            }
+                            finishLoading();
+                        };
+                        r2.readAsArrayBuffer(fileObj);
+                    } else {
+                        finishLoading();
+                    }
+                }, 50);
+            };
+            img.src = url;
+        }
+
+        // Core Process (Encrypt/Decrypt) - Updates displayImg.src
+        function processImage(mode) {
+            if(!displayImg.src) return;
+            setLoading(true);
+            setTimeout(() => {
+                try {
+                    const img = displayImg;
+                    const cvs = document.createElement('canvas');
+                    const w = cvs.width = img.naturalWidth; const h = cvs.height = img.naturalHeight;
+                    const ctx = cvs.getContext('2d'); ctx.drawImage(img,0,0);
+                    const imgData = ctx.getImageData(0,0,w,h);
+                    const newImgData = new ImageData(w,h);
+
+                    if(w !== currentWidth || h !== currentHeight) { currentWidth = w; currentHeight = h; currentCurve = gilbert2d(w,h); offsetSlider.max = w*h; offsetInput.max = w*h; }
+
+                    const curve = currentCurve; const total = w*h; const offset = parseInt(offsetInput.value);
+                    const src = imgData.data; const dst = newImgData.data;
+
+                    if(mode === 'encrypt') {
+                        for(let i=0;i<total;i++) {
+                            const oldP = curve[i]; const newP = curve[(i+offset)%total];
+                            const sIdx = (oldP[0]+oldP[1]*w)*4; const dIdx = (newP[0]+newP[1]*w)*4;
+                            dst[dIdx]=src[sIdx]; dst[dIdx+1]=src[sIdx+1]; dst[dIdx+2]=src[sIdx+2]; dst[dIdx+3]=src[sIdx+3];
+                        }
+                    } else {
+                        for(let i=0;i<total;i++) {
+                            const oldP = curve[i]; const newP = curve[(i+offset)%total];
+                            const sIdx = (newP[0]+newP[1]*w)*4; const dIdx = (oldP[0]+oldP[1]*w)*4;
+                            dst[dIdx]=src[sIdx]; dst[dIdx+1]=src[sIdx+1]; dst[dIdx+2]=src[sIdx+2]; dst[dIdx+3]=src[sIdx+3];
+                        }
+                    }
+                    ctx.putImageData(newImgData, 0, 0);
+                    // Note: We don't embed resources here to keep preview clean/fast, embedding happens at download.
+                    cvs.toBlob(b => {
+                        const url = URL.createObjectURL(b);
+                        if(displayImg.src.startsWith('blob:')) URL.revokeObjectURL(displayImg.src);
+                        displayImg.src = url;
+                        setStatus('处理完成'); setLoading(false);
+                        displayImg.onload=()=>{
+                            setTimeout(() => {
+                                if(autocopy.checked)mainCopyBtn.click();
+                            }, 50);
+                        }
+                    }, 'image/png');
+                } catch(e) { console.error(e); setStatus('错误: '+e.message); setLoading(false); }
+            }, 50);
+        }
+
+        // Smart Download Logic
+        btnDownload.onclick = () => {
+            if(!displayImg.src) return;
+            setLoading(true);
+            setStatus('正在打包资源并下载...');
+            
+            const img = displayImg;
+            const cvs = document.createElement('canvas');
+            const w = cvs.width = img.naturalWidth || img.width;
+            const h = cvs.height = img.naturalHeight || img.height;
+            const ctx = cvs.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+
+            // Get base PNG data
+            cvs.toBlob(pngBlob => {
+                const r = new FileReader();
+                r.onload = () => {
+                    let bytes = new Uint8Array(r.result);
+
+                    if(currentAttachments.length > 0) {
+                        bytes = PngInfoHandler.addMultipleInfo(bytes, currentAttachments);
+                    }
+                    else if(sourceUnknownTextChunks&&!userHasModifiedResources){
+                        bytes = PngInfoHandler.addMultipleInfo(bytes, sourceUnknownTextChunks);
+                    }
+
+                    const finalBlob = new Blob([bytes], {type:'image/png'});
+                    const url = URL.createObjectURL(finalBlob);
+                    
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'output_with_resources.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    setLoading(false);
+                    setStatus('已下载 (含 ' + currentAttachments.length + ' 个资源)');
+                };
+                r.readAsArrayBuffer(pngBlob);
+            }, 'image/png');
+        };
+
+        // --- MODAL LOGIC ---
+        
+        function updateModalNavVisibility() {
+            if(currentAttachments.length > 1) {
+                modalPrev.style.display = 'flex';
+                modalNext.style.display = 'flex';
+            } else {
+                modalPrev.style.display = 'none';
+                modalNext.style.display = 'none';
+            }
+        }
+
+        function renderModalContent(idx) {
+            if(!currentAttachments[idx]) return closeModal();
+            const a = currentAttachments[idx]; 
+            const src = `data:${a.mime};base64,${a.data}`; 
+            modalBody.innerHTML = '';
+            
+            let element;
+            if(a.type === 'image') { 
+                element = document.createElement('img'); element.src = src; 
+            } else if(a.type === 'video') { 
+                element = document.createElement('video'); element.src = src; element.controls = true; element.autoplay = true; 
+            } else { 
+                element = document.createElement('pre'); try{element.textContent=atob(a.data);}catch(e){element.textContent=a.data;} 
+            }
+            modalBody.appendChild(element);
+            currentModalIndex = idx;
+        }
+
+        function openModal(idx) {
+            if(!currentAttachments[idx]) return;
+            currentModalIndex = idx;
+            updateModalNavVisibility();
+            renderModalContent(idx);
+            modalOverlay.classList.add('active');
+        }
+
+        function closeModal() { 
+            modalOverlay.classList.remove('active'); 
+            modalBody.innerHTML = ''; // Stop videos
+        }
+
+        // Modal Event Listeners
+        modalClose.onclick = closeModal;
+        modalClickCloseLayer.onclick = closeModal;
+        modalPrev.onclick = (e) => {
+            e.stopPropagation();
+            if(currentAttachments.length <= 1) return;
+            let nextIdx = currentModalIndex - 1;
+            if(nextIdx < 0) nextIdx = currentAttachments.length - 1;
+            renderModalContent(nextIdx);
+        };
+
+        modalNext.onclick = (e) => {
+            e.stopPropagation();
+            if(currentAttachments.length <= 1) return;
+            let nextIdx = currentModalIndex + 1;
+            if(nextIdx >= currentAttachments.length) nextIdx = 0;
+            renderModalContent(nextIdx);
+        };
+
+        document.addEventListener('keydown', (e) => {
+            if(!modalOverlay.classList.contains('active')) return;
+            if(e.key === 'Escape') closeModal();
+            if(e.key === 'ArrowLeft') modalPrev.click();
+            if(e.key === 'ArrowRight') modalNext.click();
+        });
+
+        // Sidebar Drag Drop
+        const sidebar = document.querySelector('.sidebar');
+        sidebar.ondragover=e=>{ e.preventDefault(); };
+        sidebar.ondrop=e=>{
+            e.preventDefault();
+            if(e.dataTransfer.files.length) processAttachments(e.dataTransfer.files);
+            switchView('view-resources');
+        };
+
+        fileInput.addEventListener('change', e => { setLoading(true); handleMainFile(e.target.files[0]); });
+        dropZone.ondragover=e=>{e.preventDefault(); dropZone.classList.add('drag-over');};
+        dropZone.ondragleave=e=>{e.preventDefault(); dropZone.classList.remove('drag-over');};
+        dropZone.ondrop=e=>{e.preventDefault(); dropZone.classList.remove('drag-over'); if(e.dataTransfer.files.length) { setLoading(true); handleMainFile(e.dataTransfer.files[0]); }};
+        btnEncrypt.onclick = () => processImage('encrypt');
+        btnDecrypt.onclick = () => processImage('decrypt');
+
+        // --- PASTE SUPPORT (Ctrl+V) ---
+        document.addEventListener('paste', (e) => {
+            const items = e.clipboardData.items;
+            const files = [];
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].kind === 'file') {
+                    files.push(items[i].getAsFile());
+                }
+            }
+
+            if (files.length === 0) return;
+
+            // Check active view
+            const isMainView = viewMain.classList.contains('active-view');
+            
+            if (isMainView) {
+                // Handle as main file
+                setLoading(true);
+                handleMainFile(files[0],()=>{
+                    if(!gestureToggle.checked)return;
+                    setTimeout(() => {
+                        if (currentGestureDirection === 'ltr') {
+                            processImage('decrypt'); // 左→右：还原
+                        } else {
+                            processImage('encrypt'); // 右→左：混淆
+                        }
+                    }, 100);
+                });
+            } else {
+                // Handle as resources
+                processAttachments(files);
+            }
+        });
+
+        // 添加按钮事件监听（放在原有 paste 事件之后）
+        document.getElementById('main-paste-btn').addEventListener('click', async () => {
+            try {
+                await readClipboard();
+            } catch (err) {
+                console.error('读取剪贴板失败:', err);
+                // 降级提示：让用户手动粘贴
+                if (err.name === 'NotAllowedError') {
+                    alert('请允许剪贴板权限，或使用 Ctrl+V 直接粘贴');
+                } else if (err.name === 'TypeError' || !navigator.clipboard) {
+                    alert('您的浏览器不支持主动读取剪贴板，请使用 Ctrl+V 直接粘贴');
+                }
+            }
+        });
+
+        // 主动读取剪贴板函数
+        async function readClipboard() {
+            // 检查浏览器支持
+            if (!navigator.clipboard || !navigator.clipboard.read) {
+                throw new Error('Clipboard API not supported');
+            }
+
+            // 检查是否为安全上下文 (HTTPS 或 localhost)
+            if (!window.isSecureContext) {
+                throw new Error('必须在 HTTPS 或 localhost 环境下使用');
+            }
+
+            // 请求权限（Chrome/Edge 需要）
+            if (navigator.permissions) {
+                try {
+                    const permission = await navigator.permissions.query({ 
+                        name: 'clipboard-read' 
+                    });
+                    
+                    if (permission.state === 'denied') {
+                        throw new Error('剪贴板读取权限被拒绝');
+                    }
+                } catch (e) {
+                    // Firefox 不支持 clipboard-read 权限查询，继续尝试读取
+                    console.log('权限查询失败，尝试直接读取:', e);
+                }
+            }
+
+            // 读取剪贴板内容
+            const clipboardItems = await navigator.clipboard.read();
+            const files = [];
+
+            for (const item of clipboardItems) {
+                // 检查所有可用的类型
+                for (const type of item.types) {
+                    if (type.startsWith('image/')) {
+                        const blob = await item.getType(type);
+                        // 将 blob 转换为 File 对象，以便复用原有逻辑
+                        const file = new File([blob], `clipboard-image.${type.split('/')[1]}`, { 
+                            type: type 
+                        });
+                        files.push(file);
+                    }
+                }
+            }
+
+            if (files.length === 0) {
+                console.log('剪贴板中没有图片文件');
+                return;
+            }
+
+            // 复用原有逻辑处理文件
+            handleClipboardFiles(files);
+        }
+
+        // 封装原有处理逻辑，方便复用
+        function handleClipboardFiles(files) {
+            // Check active view
+            const isMainView = viewMain.classList.contains('active-view');
+            
+            if (isMainView) {
+                // Handle as main file
+                setLoading(true);
+                handleMainFile(files[0], () => {
+                    if (!gestureToggle.checked) return;
+                    setTimeout(() => {
+                        if (currentGestureDirection === 'ltr') {
+                            processImage('decrypt'); // 左→右：还原
+                        } else {
+                            processImage('encrypt'); // 右→左：混淆
+                        }
+                    }, 100);
+                });
+            } else {
+                // Handle as resources
+                processAttachments(files);
+            }
+        }
+        
+        let currentStep = 0;
+        let guideSteps = [];
+
+        function guidcss(){
+            guideSteps=[
+            {
+                element: dropZone,
+                message: "第一步：上传主文件\n点击此处或将图片/视频拖入此区域。如果是视频，系统会自动提取第一帧作为预览图。",
+                position: "bottom"
+            },
+            {
+                element: offsetSlider,
+                message: "第二步：调整混淆参数\n拖动滑块设置像素偏移量。默认使用黄金分割比例，您也可以自定义偏移百分比来改变加密效果。",
+                position: "bottom"
+            },
+            {
+                element: btnEncrypt,
+                message: "第三步：执行混淆/还原\n点击【混淆图片】对原图进行像素级加密打乱。如果是加密过的图片，点击【还原图片】即可恢复原貌。",
+                position: "top",
+                action:()=>{
+                    switchView('view-main');
+                }
+            },
+            {
+                element: document.querySelector('.view-toolbar .toggle-btn[data-target="view-resources"]'),
+                message: "第四步：管理附加资源\n点击这个按钮切换到【资源瀑布流】视图。您可以在此添加额外的文件（如文档、音乐、视频），它们将被隐藏嵌入到最终的图片中。",
+                position: "bottom",
+                action:()=>{
+                    switchView('view-resources');
+                }
+            }
+            ,
+            {
+                element: btnDownload,
+                message: "第五步：导出结果\n最后，点击【下载结果】。系统会将当前处理过的图片与所有附加资源打包成一个新的 PNG 文件供您保存。",
+                position: "top",
+                action:()=>{
+                    switchView('view-main');
+                }
+            }
+            ];
+            
+            const css = `/* 帮助按钮样式 */
+                .help-button {
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    width: 50px;
+                    height: 50px;
+                    border-radius: 50%;
+                    background-color: #1890ff;
+                    color: white;
+                    border: none;
+                    font-size: 20px;
+                    cursor: pointer;
+                    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 1000;
+                    transition: all 0.3s ease;
+                }
+
+                .help-button:hover {
+                    background-color: #40a9ff;
+                    transform: scale(1.1);
+                }
+
+                /* 引导遮罩层 */
+                .guide-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background-color: rgba(0, 0, 0, 0.5);
+                    z-index: 999;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+
+                .guide-content {
+                    background-color: white;
+                    padding: 20px;
+                    border-radius: 8px;
+                    max-width: 400px;
+                    text-align: center;
+                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                }
+
+                .guide-content h3 {
+                    margin-bottom: 15px;
+                    color: #1890ff;
+                }
+
+                .guide-content p {
+                    margin-bottom: 20px;
+                    line-height: 1.5;
+                }
+
+                .guide-buttons {
+                    display: flex;
+                    justify-content: space-between;
+                }
+
+                .guide-button {
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                }
+
+                .prev-button {
+                    background-color: #f0f0f0;
+                    color: #333;
+                }
+
+                .next-button {
+                    background-color: #1890ff;
+                    color: white;
+                }
+
+                .skip-button {
+                    background-color: #ff4d4f;
+                    color: white;
+                }
+
+                .finish-button {
+                    background-color: #52c41a;
+                    color: white;
+                }
+
+                /* 高亮区域 */
+                .highlight-area {
+                    position: absolute;
+                    border: 3px solid #1890ff;
+                    border-radius: 8px;
+                    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+                    z-index: 1000;
+                    pointer-events: none;
+                }
+
+                /* 引导提示框样式 - 宽度固定，高度自适应 */
+                .highlight-tooltip {
+                    position: absolute;
+                    background-color: #1890ff;
+                    color: white;
+                    padding: 15px;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    z-index: 1001;
+                    width: 300px;
+                    max-width: 300px;
+                    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+                    text-align: left;
+                    line-height: 1.6;
+                    word-wrap: break-word;
+                    white-space: pre-line; /* 支持\\n换行 */
+                }
+
+                .highlight-tooltip::after {
+                    content: '';
+                    position: absolute;
+                    width: 0;
+                    height: 0;
+                    border: 8px solid transparent;
+                }
+
+                /* 上方提示框 */
+                .highlight-tooltip.tooltip-top::after {
+                    bottom: -16px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    border-top-color: #1890ff;
+                }
+
+                /* 下方提示框 */
+                .highlight-tooltip.tooltip-bottom::after {
+                    top: -16px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    border-bottom-color: #1890ff;
+                }
+
+                /* 引导按钮容器 */
+                .guide-tooltip-buttons {
+                    display: flex;
+                    justify-content: space-between;
+                    gap: 10px;
+                    margin-top: 15px;
+                    flex-wrap: wrap;
+                }
+
+                .guide-tooltip-button {
+                    padding: 6px 12px;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    flex: 1;
+                    text-align: center;
+                    min-width: 60px;
+                }
+
+                .prev-tooltip-button {
+                    background-color: rgba(255, 255, 255, 0.2);
+                    color: white;
+                    border: 1px solid rgba(255, 255, 255, 0.3);
+                }
+
+                .next-tooltip-button {
+                    background-color: white;
+                    color: #1890ff;
+                    font-weight: 500;
+                }
+
+                .finish-tooltip-button {
+                    background-color: #52c41a;
+                    color: white;
+                }
+
+                .skip-tooltip-button {
+                    background-color: rgba(255, 77, 79, 0.8);
+                    color: white;
+                }
+
+                .guide-tooltip-button:hover {
+                    opacity: 0.9;
+                    transform: translateY(-1px);
+                    transition: all 0.2s ease;
+                }`;
+
+            let style = document.createElement('style');
+            style.type = 'text/css';
+            style.innerHTML = css;
+            document.getElementsByTagName('head')[0].appendChild(style);
+        }
+
+        function showGuideOverlay() {
+            // 移除现有的高亮元素
+            const existingHighlight = document.querySelector('.highlight-area');
+            if (existingHighlight) existingHighlight.remove();
+
+            const existingTooltip = document.querySelector('.highlight-tooltip');
+            if (existingTooltip) existingTooltip.remove();
+
+            if (currentStep >= guideSteps.length) {
+                // 引导结束
+                return;
+            }
+
+            const step = guideSteps[currentStep];
+            const element = step.element;
+            
+            // --- 修复 1：获取当前页面的滚动偏移量 ---
+            const scrollTop = window.scrollY || document.documentElement.scrollTop;
+            const scrollLeft = window.scrollX || document.documentElement.scrollLeft;
+
+            const rect = element.getBoundingClientRect();
+
+            // 创建高亮区域
+            const highlight = document.createElement('div');
+            highlight.className = 'highlight-area';
+            
+            // --- 修复 2：在设置 top/left 时加上滚动偏移量 ---
+            // 这样 absolute 定位的位置才是相对于文档的正确位置
+            highlight.style.left = (rect.left + scrollLeft) + 'px';
+            highlight.style.top = (rect.top + scrollTop) + 'px';
+            highlight.style.width = rect.width + 'px';
+            highlight.style.height = rect.height + 'px';
+            document.body.appendChild(highlight);
+
+            // 创建提示信息
+            const tooltip = document.createElement('div');
+            tooltip.className = `highlight-tooltip tooltip-${step.position}`;
+            
+            // 创建按钮HTML
+            let buttonsHTML = '<div class="guide-tooltip-buttons">';
+            if (currentStep > 0) {
+                buttonsHTML += '<button class="guide-tooltip-button prev-tooltip-button" id="prevGuideTooltip">上一步</button>';
+            }
+            
+            if (currentStep < guideSteps.length - 1) {
+                buttonsHTML += '<button class="guide-tooltip-button next-tooltip-button" id="nextGuideTooltip">下一步</button>';
+            } else {
+                buttonsHTML += '<button class="guide-tooltip-button finish-tooltip-button" id="finishGuideTooltip">完成</button>';
+            }
+            
+            buttonsHTML += '<button class="guide-tooltip-button skip-tooltip-button" id="skipGuideTooltip">跳过</button>';
+            buttonsHTML += '</div>';
+            
+            // 设置提示内容，支持\n换行
+            tooltip.innerHTML = `<div class="guide-message">${step.message}</div>${buttonsHTML}`;
+            
+            // 如果有action，执行它
+            if (step.action) {
+                step.action();
+            }
+            
+            // 将提示框添加到DOM
+            document.body.appendChild(tooltip);
+            
+            // 计算提示框位置
+            const tooltipWidth = 300; // 固定宽度
+            const tooltipHeight = tooltip.offsetHeight;
+            const spacing = 15; // 高亮区域和提示框的间距
+
+            // --- 修复 3：修正提示框的定位逻辑 ---
+            
+            // 先计算相对于视口的理想 Left 位置 (确保不出屏幕左右边界)
+            // rect.left 是相对于视口的，所以这里先算视口内的相对位置
+            let visualLeft = rect.left + rect.width / 2 - tooltipWidth / 2;
+            
+            // 限制在视口范围内 (左右各留10px边距)
+            visualLeft = Math.max(10, Math.min(visualLeft, window.innerWidth - tooltipWidth - 10));
+            
+            // 最终转换为文档坐标 (加上 scrollLeft)
+            tooltip.style.left = (visualLeft + scrollLeft) + 'px';
+
+            if (step.position === 'bottom') {
+                // 提示框在下方：元素的 rect.bottom (视口) + 间距 + 滚动偏移
+                tooltip.style.top = (rect.bottom + spacing + scrollTop) + 'px';
+            } else {
+                // 提示框在上方：元素的 rect.top (视口) - 高度 - 间距 + 滚动偏移
+                // 注意：Math.max 是为了防止上方空间不足导致跑到屏幕最顶端上方，这里也要加上 scrollTop
+                let visualTop = Math.max(10, rect.top - tooltipHeight - spacing);
+                tooltip.style.top = (visualTop + scrollTop) + 'px';
+            }
+            
+            // --- 可选优化：确保元素在视口内 ---
+            // 如果元素不在当前视口，滚动页面将其展示出来（建议加上）
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // 添加按钮事件监听器
+            const addButtonListeners = () => {
+                const prevBtn = document.getElementById('prevGuideTooltip');
+                const nextBtn = document.getElementById('nextGuideTooltip');
+                const finishBtn = document.getElementById('finishGuideTooltip');
+                const skipBtn = document.getElementById('skipGuideTooltip');
+                
+                if (prevBtn) {
+                    prevBtn.addEventListener('click', () => {
+                        currentStep--;
+                        document.body.removeChild(highlight);
+                        document.body.removeChild(tooltip);
+                        showGuideOverlay();
+                    });
+                }
+                
+                if (nextBtn) {
+                    nextBtn.addEventListener('click', () => {
+                        currentStep++;
+                        document.body.removeChild(highlight);
+                        document.body.removeChild(tooltip);
+                        showGuideOverlay();
+                    });
+                }
+                
+                if (finishBtn) {
+                    finishBtn.addEventListener('click', () => {
+                        document.body.removeChild(highlight);
+                        document.body.removeChild(tooltip);
+                        currentStep = guideSteps.length;
+                    });
+                }
+                
+                if (skipBtn) {
+                    skipBtn.addEventListener('click', () => {
+                        document.body.removeChild(highlight);
+                        document.body.removeChild(tooltip);
+                        currentStep = guideSteps.length;
+                    });
+                }
+            };
+            
+            setTimeout(addButtonListeners, 0);
+        }
+
+        function floatball(path='interface.jpg'){
+            const css=`.floating-ball {
+                width: 30px;
+                height: 30px;
+                background-color: #e0f2fe;
+                color: #0369a1;
+                border-radius: 15px;
+                position: fixed;
+                top: 0px;
+                right: 0px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: transform 0.3s ease;
+                cursor: pointer;
+            }
+            .floating-ball:hover {
+                transform: scale(1.2);
+            }`;
+            let style = document.createElement('style');
+            style.type = 'text/css';
+            style.innerHTML=css;
+            document.getElementsByTagName('head')[0].appendChild(style);
+            let div=document.createElement('div');
+            div.classList.add('floating-ball');
+            div.innerHTML=`❓ `;
+            div.onclick=()=>{
+                currentStep = 0;
+                showGuideOverlay();
+            }
+            document.body.append(div)
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            floatball();
+            guidcss();
+            loadBusuanzi();
+            let resizeTimer;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => {
+                    if (window.waterfallInstance) {
+                        window.waterfallInstance.handleResize();
+                    }
+                }, 200);
+            });
+        });
+
+
+
+        function loadBusuanzi() {
+            const script = document.createElement('script');
+            script.src = '//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js';
+            script.async = true;
+            document.body.appendChild(script);
+        }
+    </script>
+    
+     
+</body>
+</html>
