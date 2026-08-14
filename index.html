@@ -239,12 +239,11 @@
 
         /* Waterfall View */
         .waterfall-container {
-            column-count: 4;
-            column-gap: 15px;
-            /* Firefox 稳定性修复 */
+            position: relative;
             width: 100%;
             min-height: 100%;
             padding-bottom: 40px;
+            /* 移除 column-count 相关属性 */
         }
         .waterfall-container.drag-over-waterfall {
             background: rgba(59, 130, 246, 0.05);
@@ -260,6 +259,54 @@
             flex-direction: column;
             gap: 15px;
          } }
+
+        /* 资源瀑布流全屏查看（方便移动端查看资源） */
+        .waterfall-fs-btn {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            z-index: 50;
+            width: 42px; height: 42px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.92);
+            color: var(--text-main);
+            font-size: 19px;
+            line-height: 1;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.2s, color 0.2s, transform 0.2s;
+        }
+        .waterfall-fs-btn:hover { background: #fff; color: var(--primary-color); transform: translateY(-1px); }
+        .waterfall-fs-btn:active { transform: translateY(0); }
+
+        /* 资源瀑布流全屏模态窗：把瀑布流容器移到此模态窗内，天然铺满屏幕。
+           层级刻意低于点击媒体(图片/视频)的 #modal-overlay(z-index:2000)，
+           这样在瀑布流里点开视频/图片时，媒体模态窗会盖在它上面。 */
+        #waterfall-fs-overlay {
+            z-index: 1500;
+            background: #e2e8f0;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        #waterfall-fs-overlay .waterfall-fs-content {
+            width: 100%; height: 100%;
+            background: transparent;
+            overflow-y: auto;
+            padding: 56px 20px 20px;
+            align-items: stretch; justify-content: flex-start;
+        }
+        .waterfall-fs-holder {
+            width: 100%;
+            min-height: 100%;
+        }
+        #waterfall-fs-overlay .modal-close {
+            /* 容器可滚动，必须用 fixed 让关闭按钮相对视口固定在右上角，不随瀑布流滚动 */
+            position: fixed; top: 16px; right: 16px;
+            z-index: 30;
+            background: rgba(15, 23, 42, 0.55);
+        }
         /* Mobile */
         @media (max-width: 768px) {
             .app-container { grid-template-columns: 1fr; height: auto; }
@@ -271,46 +318,73 @@
         }
 
         .waterfall-card {
-            /* 防止元素被截断/跨列 - Firefox 兼容方案 */
-            break-inside: avoid;
-            page-break-inside: avoid;  /* Firefox 旧版支持 */
-            -webkit-column-break-inside: avoid; /* Webkit 旧版 */
-            
-            /* 修复 Firefox 中 overflow 与 break-inside 的冲突 */
-            overflow: visible;  /* 改为 visible，让 break-inside 生效 */
-            
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: calc(25% - 11.25px); /* 默认4列，gap 15px */
             background: white;
             border-radius: 8px;
-            /* overflow: hidden;  <-- 移除或注释掉这行，它会导致 Firefox 不换行 */
-            margin-bottom: 15px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            transition: transform 0.2s, box-shadow 0.2s;
-            position: relative;
+            transition: transform 0.2s, box-shadow 0.2s, top 0.3s, left 0.3s;
             border: 1px solid var(--border-color);
             cursor: pointer;
+            break-inside: auto; /* 移除之前的 break-inside */
+            margin-bottom: 0; /* 由JS控制间距 */
+        }
+        /* 响应式列宽 */
+        @media (max-width: 1200px) { 
+            .waterfall-card { width: calc(33.333% - 10px); } /* 3列 */
+        }
+        @media (max-width: 800px) { 
+            .waterfall-card { width: calc(50% - 7.5px); } /* 2列 */
+        }
+        @media (max-width: 500px) { 
+            .waterfall-card { width: 100%; } /* 1列 */
         }
         .waterfall-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
             border-color: var(--primary-color);
+            z-index: 10;
         }
+
 
         /* 为保持圆角效果，在内部子元素添加 overflow */
         .waterfall-media {
             width: 100%;
-            display: block;
             background: #f1f5f9;
-            overflow: hidden; /* 将 overflow: hidden 移到这里 */
-            border-radius: 8px 8px 0 0; /* 顶部圆角 */
+            border-radius: 8px 8px 0 0;
+            overflow: hidden;
+            /* 默认最小高度，加载后会被内容撑开 */
+            min-height: 120px;
         }
         .waterfall-media img, .waterfall-media video {
-            width: 100%; height: auto; display: block;
+            width: 100%;
+            height: auto;
+            display: block;
         }
 
         .waterfall-info {
             padding: 10px;
             background: white;
-            border-radius: 0 0 8px 8px; /* 底部圆角 */
+            border-radius: 0 0 8px 8px;
+        }
+        .waterfall-placeholder {
+            height: 120px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f1f5f9;
+            color: #94a3b8;
+            font-size: 2rem;
+            gap: 8px;
+        }
+
+        .waterfall-placeholder-size {
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 500;
         }
         .waterfall-filename {
             font-size: 0.8rem; font-weight: 600; color: var(--text-main);
@@ -426,6 +500,7 @@
             #modal-prev { left: 10px; }
             #modal-next { right: 10px; }
         }
+
     </style>
 </head>
 <body>
@@ -495,6 +570,21 @@
                 </label>
             </div>
 
+            <!-- 5. 视频嵌入模式 -->
+            <div id="vembed-section" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+                <div class="section-title">5. 视频嵌入模式</div>
+                <div style="font-size: 0.75rem; color: var(--text-sub); line-height: 1.5; margin-bottom: 8px;">
+                    拖入<strong>视频</strong>到主预览区即进入此模式：主图被编码为<strong>单帧视频（MP4 或 WebM）</strong>，资源瀑布流里的文件以 base64 嵌入其中，「下载」即导出该视频。
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button id="btn-vembed" class="btn btn-primary" disabled>🎬 生成嵌入视频 (单帧视频)</button>
+                    <label class="btn btn-secondary" style="position: relative;">
+                        📂 读取嵌入视频
+                        <input type="file" id="embed-input" accept="video/mp4" style="position: absolute; inset: 0; opacity: 0; cursor: pointer;">
+                    </label>
+                </div>
+            </div>
+
             <div class="status-bar" id="status-bar">
                 <span id="busuanzi_container_site_pv">就绪><span id="busuanzi_value_site_pv"></span><</span>
             </div>
@@ -532,6 +622,7 @@
 
             <!-- View 2: Resources Waterfall -->
             <div id="view-resources" class="view-layer">
+                <button id="waterfall-fs-btn" class="waterfall-fs-btn" title="全屏查看资源" aria-label="全屏查看资源">⛶</button>
                 <div id="waterfall-container" class="waterfall-container">
                     <!-- Dynamic Content -->
                 </div>
@@ -540,7 +631,7 @@
                     <div>拖拽\粘贴文件到此处添加资源<br>或使用左侧 "上传资源文件"</div>
                 </div>
             </div>
-            
+
         </section>
     </main>
 
@@ -555,7 +646,724 @@
         </div>
     </div>
 
-    <script>
+    <!-- 资源瀑布流全屏模态窗（层级低于媒体模态窗，便于在瀑布流中点开视频/图片） -->
+    <div class="modal-overlay" id="waterfall-fs-overlay">
+        <div class="modal-content waterfall-fs-content">
+            <button class="modal-close" id="waterfall-fs-close" title="关闭全屏" aria-label="关闭全屏">&times;</button>
+            <div class="waterfall-fs-holder" id="waterfall-fs-holder"></div>
+        </div>
+    </div>
+
+        <script>
+        /**
+         * 高性能瀑布流实现 - 修复版
+         * 完整支持：图片、视频、对象文件（.7z等）、文本文件
+         */
+        /**
+ * 高性能瀑布流实现 - 修复版
+ * 修复内容：
+ * 1. 修复删除卡片后瀑布流布局不更新的问题（确保DOM移除后重新布局）
+ * 2. 保持下载按钮调用外部 downloadAttachment 函数
+ */
+/**
+ * 高性能瀑布流实现 - 修复版
+ * 修复内容：
+ * 1. 修复删除卡片后瀑布流布局不更新的问题（关键：立即从数组移除并重新布局）
+ * 2. 保持下载按钮调用外部 downloadAttachment 函数
+ * 3. 修复删除按钮事件绑定，使用 handleDelete 分离外部回调和UI删除
+ */
+ class HighPerformanceWaterfall {
+    constructor(container, options = {}) {
+        this.container = container;
+        this.columnCount = options.columnCount || 4;
+        this.gap = options.gap || 16;
+        this.cards = [];
+        this.visibleCards = new Set();
+        this.cardDataMap = new Map();
+        this.resizeObserver = null;
+        this.intersectionObserver = null;
+        this.columnHeights = [];
+        
+        this.placeholderHeight = options.placeholderHeight || 200;
+        this.loadThreshold = options.loadThreshold || 0.1;
+        this.playThreshold = options.playThreshold || 0.6;
+        
+        this.init();
+    }
+    
+    // 获取文件图标
+    getFileIcon(type) {
+        if (type === 'image') return '🖼️';
+        if (type === 'video') return '🎬';
+        if (type === 'object') return '📦';
+        if (type === 'text') return '📄';
+        return '📎';
+    }
+    
+    // 获取文件类型显示名称
+    getFileTypeLabel(type, mime) {
+        if (type === 'image') return 'IMAGE';
+        if (type === 'video') return 'VIDEO';
+        if (type === 'object') {
+            if (mime && mime !== 'app/octet-stream') {
+                const ext = mime.split('/').pop();
+                if (ext && ext.length < 10) return ext.toUpperCase();
+            }
+            return 'FILE';
+        }
+        if (type === 'text') return 'TEXT';
+        return 'FILE';
+    }
+    
+    init() {
+        this.resizeObserver = new ResizeObserver(entries => {
+            requestAnimationFrame(() => this.handleResize());
+        });
+        this.resizeObserver.observe(this.container);
+        
+        this.intersectionObserver = new IntersectionObserver(
+            (entries) => this.handleIntersection(entries),
+            {
+                root: null,
+                rootMargin: '100px',
+                threshold: [0, 0.1, 0.5, 0.6, 1]
+            }
+        );
+        
+        this.updateColumnCount();
+    }
+    
+    updateColumnCount() {
+        const width = this.container.clientWidth;
+        if (width <= 500) this.columnCount = 1;
+        else if (width <= 800) this.columnCount = 2;
+        else if (width <= 1200) this.columnCount = 3;
+        else this.columnCount = 4;
+        
+        this.calculateLayout();
+    }
+    
+    handleResize() {
+        const oldCount = this.columnCount;
+        this.updateColumnCount();
+        
+        if (oldCount !== this.columnCount) {
+            this.reflowAll();
+        } else {
+            this.updateCardWidths();
+        }
+    }
+    
+    calculateLayout() {
+        const containerWidth = this.container.clientWidth;
+        const totalGap = (this.columnCount - 1) * this.gap;
+        this.columnWidth = (containerWidth - totalGap) / this.columnCount;
+        this.columnHeights = new Array(this.columnCount).fill(0);
+    }
+    
+    addCard(data) {
+        this.cardDataMap.set(data.id, data);
+        
+        const card = this.createCardElement(data);
+        this.cards.push(card);
+        this.container.appendChild(card);
+        
+        // 非媒体文件直接显示内容，不需要懒加载
+        if (data.type !== 'image' && data.type !== 'video') {
+            this.renderFileCard(card, data);
+        } else {
+            // 媒体文件先使用占位符高度
+            const aspectRatio = data.aspectRatio || 0;
+            const initialHeight = aspectRatio > 0 
+                ? this.columnWidth / aspectRatio 
+                : this.placeholderHeight;
+            this.positionCard(card, initialHeight);
+        }
+        
+        this.intersectionObserver.observe(card);
+        return card;
+    }
+    
+    createCardElement(data) {
+        const card = document.createElement('div');
+        card.className = 'waterfall-card';
+        card.dataset.id = data.id;
+        card.dataset.type = data.type;
+        card.dataset.loaded = 'false';
+        card.dataset.index = data.index;
+        
+        card.style.cssText = `
+            position: absolute;
+            width: ${this.columnWidth}px;
+            left: 0;
+            top: 0;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            will-change: transform;
+            contain: layout style paint;
+        `;
+        
+        const sizeText = data.size ? `${(data.size / 1024).toFixed(1)}KB` : '';
+        const icon = this.getFileIcon(data.type);
+        const typeLabel = this.getFileTypeLabel(data.type, data.mime);
+        
+        // 根据类型设置初始高度
+        const isMedia = data.type === 'image' || data.type === 'video';
+        const initialHeight = isMedia 
+            ? (data.aspectRatio > 0 ? this.columnWidth / data.aspectRatio : this.placeholderHeight)
+            : 160; // 固定高度给文件卡片
+        
+        card.dataset.expectedHeight = initialHeight;
+        
+        card.innerHTML = `
+            <div class="card-inner" style="
+                background: #f8fafc;
+                border-radius: 8px;
+                overflow: hidden;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                height: ${initialHeight}px;
+                position: relative;
+                transition: all 0.3s ease;
+            ">
+                <!-- 占位符层 -->
+                <div class="card-placeholder" style="
+                    position: absolute;
+                    inset: 0;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    color: #94a3b8;
+                    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+                    z-index: 1;
+                ">
+                    <div style="font-size: 2.5rem; margin-bottom: 4px;">${icon}</div>
+                    <div style="font-size: 0.75rem; font-weight: 500;">${sizeText}</div>
+                    <div style="font-size: 0.65rem; margin-top: 2px; opacity: 0.7;">${typeLabel}</div>
+                </div>
+
+                <!-- 媒体/内容层 -->
+                <div class="card-media" style="
+                    position: absolute;
+                    inset: 0;
+                    opacity: 0;
+                    transition: opacity 0.4s ease;
+                    z-index: 2;
+                "></div>
+
+                <!-- 信息覆盖层 -->
+                <div class="card-overlay" style="
+                    position: absolute;
+                    bottom: 0;
+                    left: 0;
+                    right: 0;
+                    padding: 12px;
+                    background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent);
+                    color: white;
+                    font-size: 0.8rem;
+                    opacity: 0;
+                    transition: opacity 0.3s;
+                    pointer-events: none;
+                    z-index: 3;
+                ">
+                    <div style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">
+                        ${data.filename}
+                    </div>
+                    <div style="font-size: 0.7rem; opacity: 0.9; margin-top: 3px; display: flex; align-items: center; gap: 6px;">
+                        <span style="background: rgba(255,255,255,0.2); padding: 1px 6px; border-radius: 4px; font-size: 0.65rem;">${typeLabel}</span>
+                        <span>${sizeText}</span>
+                    </div>
+                </div>
+
+                <!-- 操作按钮 -->
+                <button class="card-action card-delete" style="
+                    position: absolute;
+                    top: 8px;
+                    right: 8px;
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 50%;
+                    background: rgba(0,0,0,0.6);
+                    color: white;
+                    border: none;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    opacity: 0;
+                    transition: all 0.2s;
+                    font-size: 18px;
+                    z-index: 10;
+                    backdrop-filter: blur(4px);
+                ">×</button>
+
+                <button class="card-action card-download" style="
+                    position: absolute;
+                    top: 8px;
+                    right: 40px;
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 50%;
+                    background: rgba(0,0,0,0.6);
+                    color: white;
+                    border: none;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    opacity: 0;
+                    transition: all 0.2s;
+                    font-size: 12px;
+                    z-index: 10;
+                    backdrop-filter: blur(4px);
+                ">⬇</button>
+            </div>
+        `;
+
+        // 悬停交互
+        const inner = card.querySelector('.card-inner');
+        const overlay = card.querySelector('.card-overlay');
+        const actions = card.querySelectorAll('.card-action');
+
+        card.addEventListener('mouseenter', () => {
+            overlay.style.opacity = '1';
+            actions.forEach(btn => btn.style.opacity = '1');
+            inner.style.transform = 'translateY(-4px)';
+            inner.style.boxShadow = '0 20px 25px -5px rgba(0,0,0,0.15)';
+        });
+
+        card.addEventListener('mouseleave', () => {
+            overlay.style.opacity = '0';
+            actions.forEach(btn => btn.style.opacity = '0');
+            inner.style.transform = '';
+            inner.style.boxShadow = '';
+        });
+
+        // 事件绑定 - 删除按钮（关键修复：使用箭头函数保持this上下文）
+        const deleteBtn = card.querySelector('.card-delete');
+        deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            console.log('[Waterfall] Delete button clicked for:', data.id);
+            this.handleDelete(card, data);
+        };
+        
+        // 事件绑定 - 下载按钮（调用外部 downloadAttachment 函数）
+        const downloadBtn = card.querySelector('.card-download');
+        downloadBtn.onmouseenter = () => {
+            downloadBtn.style.background = '#3b82f6';
+        };
+        downloadBtn.onmouseleave = () => {
+            downloadBtn.style.background = 'rgba(0,0,0,0.6)';
+        };
+        downloadBtn.onclick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            console.log('[Waterfall] Download button clicked for:', data.id);
+            // 调用外部的 downloadAttachment 函数，传入附件数据
+            if (typeof downloadAttachment === 'function') {
+                downloadAttachment(data);
+            } else if (data.onDownload) {
+                data.onDownload(data);
+            } else {
+                console.warn('[Waterfall] downloadAttachment function not found');
+            }
+        };
+        
+        card.onclick = () => {
+            if (data.onClick) data.onClick(data);
+        };
+        
+        return card;
+    }
+    
+    /**
+     * 关键修复：处理删除操作
+     * 分离外部回调和UI删除，确保无论外部回调如何都会删除UI
+     */
+    handleDelete(card, data) {
+        console.log('[Waterfall] handleDelete called for:', data.id, data.filename);
+        
+        // 先调用外部回调（如果存在），但不依赖它来删除UI
+        if (data.onDelete) {
+            try {
+                data.onDelete(data);
+                console.log('[Waterfall] External onDelete executed');
+            } catch (err) {
+                console.error('[Waterfall] onDelete callback error:', err);
+            }
+        }
+        
+        // 立即执行UI删除（关键：不等待外部回调）
+        console.log('[Waterfall] Calling removeCard for UI update');
+        this.removeCard(card);
+    }
+    
+    // 专门处理非媒体文件（.7z, .txt 等）
+    renderFileCard(card, data) {
+        card.dataset.loaded = 'true';
+        const mediaContainer = card.querySelector('.card-media');
+        const placeholder = card.querySelector('.card-placeholder');
+        const inner = card.querySelector('.card-inner');
+        
+        const fileIcon = this.getFileIcon(data.type);
+        const fileType = this.getFileTypeLabel(data.type, data.mime);
+        const sizeText = data.size ? `${(data.size / 1024).toFixed(1)} KB` : '';
+        
+        // 文件卡片内容 - 大号图标 + 文件名
+        mediaContainer.innerHTML = `
+            <div style="
+                width: 100%; 
+                height: 100%; 
+                display: flex; 
+                flex-direction: column; 
+                align-items: center; 
+                justify-content: center;
+                background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+                color: #475569;
+                text-align: center;
+                padding: 16px;
+                box-sizing: border-box;
+                gap: 8px;
+            ">
+                <div style="font-size: 3.5rem; filter: grayscale(0.2);">${fileIcon}</div>
+                
+                <div style="
+                    font-size: 0.85rem; 
+                    font-weight: 600; 
+                    color: #1e293b; 
+                    max-width: 100%; 
+                    overflow: hidden; 
+                    text-overflow: ellipsis; 
+                    white-space: nowrap;
+                    padding: 0 4px;
+                    line-height: 1.3;
+                " title="${data.filename}">
+                    ${data.filename}
+                </div>
+                
+                <div style="
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-size: 0.7rem; 
+                    color: #64748b; 
+                    margin-top: 2px;
+                ">
+                    <span style="
+                        background: #cbd5e1; 
+                        color: #475569;
+                        padding: 2px 8px; 
+                        border-radius: 4px; 
+                        font-weight: 600;
+                        font-size: 0.65rem;
+                        text-transform: uppercase;
+                    ">${fileType}</span>
+                    <span>${sizeText}</span>
+                </div>
+            </div>
+        `;
+        
+        // 固定高度
+        const fileHeight = 160;
+        inner.style.height = `${fileHeight}px`;
+        card.dataset.expectedHeight = fileHeight;
+        
+        // 直接显示，无需渐显（因为不需要加载时间）
+        mediaContainer.style.opacity = '1';
+        placeholder.style.display = 'none';
+        
+        this.positionCard(card, fileHeight);
+    }
+    
+    positionCard(card, height) {
+        const minHeight = Math.min(...this.columnHeights);
+        const columnIndex = this.columnHeights.indexOf(minHeight);
+        
+        const x = columnIndex * (this.columnWidth + this.gap);
+        const y = minHeight;
+        
+        card.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+        
+        this.columnHeights[columnIndex] = y + height + this.gap;
+        this.updateContainerHeight();
+    }
+    
+    updateContainerHeight() {
+        const maxHeight = Math.max(...this.columnHeights, 0);
+        this.container.style.height = `${maxHeight}px`;
+    }
+    
+    handleIntersection(entries) {
+        entries.forEach(entry => {
+            const card = entry.target;
+            const ratio = entry.intersectionRatio;
+            const isVisible = entry.isIntersecting;
+            
+            // 非媒体文件不需要懒加载处理
+            if (card.dataset.type !== 'image' && card.dataset.type !== 'video') {
+                return;
+            }
+            
+            if (isVisible && ratio > this.loadThreshold) {
+                if (card.dataset.loaded === 'false') {
+                    this.loadMedia(card);
+                }
+                
+                const video = card.querySelector('video');
+                if (video && ratio > this.playThreshold) {
+                    this.playVideo(video);
+                } else if (video && ratio < this.playThreshold) {
+                    this.pauseVideo(video);
+                }
+                
+                card.style.contentVisibility = 'visible';
+                this.visibleCards.add(card.dataset.id);
+            } else {
+                const video = card.querySelector('video');
+                if (video) this.pauseVideo(video);
+                
+                if (ratio === 0) {
+                    card.style.contentVisibility = 'auto';
+                }
+                this.visibleCards.delete(card.dataset.id);
+            }
+        });
+    }
+    
+    loadMedia(card) {
+        const data = this.cardDataMap.get(card.dataset.id);
+        if (!data) return;
+        
+        card.dataset.loaded = 'true';
+        const mediaContainer = card.querySelector('.card-media');
+        const placeholder = card.querySelector('.card-placeholder');
+        const inner = card.querySelector('.card-inner');
+        
+        if (data.type === 'image') {
+            const img = new Image();
+            img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+            img.decoding = 'async';
+            
+            img.onload = () => {
+                const ar = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0;
+                card.dataset.aspectRatio = (isFinite(ar) && ar > 0) ? ar : 1;
+                if (this.columnWidth > 0) {
+                    const newHeight = Math.max(120, Math.min(960, this.columnWidth / parseFloat(card.dataset.aspectRatio)));
+                    inner.style.height = `${newHeight}px`;
+                    this.updateCardHeight(card, newHeight);
+                }
+                
+                requestAnimationFrame(() => {
+                    mediaContainer.style.opacity = '1';
+                    setTimeout(() => placeholder.style.opacity = '0', 100);
+                });
+            };
+            
+            img.src = `data:${data.mime};base64,${data.data}`;
+            mediaContainer.appendChild(img);
+            
+        } else if (data.type === 'video') {
+            const video = document.createElement('video');
+            video.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+            video.muted = true;
+            video.playsInline = true;
+            video.loop = true;
+            video.autoplay = true; // 浏览器在可播放时自动开播，规避播放竞态
+            video.preload = 'metadata';
+
+            const tryPlay = () => {
+                if (this.visibleCards.has(card.dataset.id)) this.playVideo(video);
+            };
+            
+            video.onloadedmetadata = () => {
+                const ar = video.videoHeight > 0 ? video.videoWidth / video.videoHeight : 0;
+                card.dataset.aspectRatio = (isFinite(ar) && ar > 0) ? ar : 1;
+                if (this.columnWidth > 0) {
+                    const newHeight = Math.max(120, Math.min(960, this.columnWidth / parseFloat(card.dataset.aspectRatio)));
+                    inner.style.height = `${newHeight}px`;
+                    this.updateCardHeight(card, newHeight);
+                }
+                
+                requestAnimationFrame(() => {
+                    mediaContainer.style.opacity = '1';
+                    setTimeout(() => placeholder.style.opacity = '0', 100);
+                });
+                
+                // 元数据就绪即尝试播放（readyState 可能仍为 1，playVideo 已放宽到 >=1）
+                tryPlay();
+            };
+            // 数据/可播放就绪的兜底：确保首次进入资源栏、缓冲完成时能真正开播
+            video.onloadeddata = tryPlay;
+            video.oncanplay = tryPlay;
+            
+            video.src = `data:${data.mime};base64,${data.data}`;
+            mediaContainer.appendChild(video);
+        }
+    }
+    
+    // 媒体卡高度：用真实宽高比 + 当前列宽计算，规避隐藏渲染时列宽为 0 / 元数据缺尺寸导致的塌缩
+    _mediaHeight(card) {
+        const inner = card.querySelector('.card-inner');
+        const ar = parseFloat(card.dataset.aspectRatio);
+        if (card.dataset.loaded === 'true' && isFinite(ar) && ar > 0 && this.columnWidth > 0) {
+            const h = this.columnWidth / ar;
+            return Math.max(120, Math.min(960, h));
+        }
+        const ph = parseFloat(inner.style.height);
+        if (isFinite(ph) && ph > 0) return ph;
+        const eh = parseFloat(card.dataset.expectedHeight);
+        if (isFinite(eh) && eh > 0) return eh;
+        return this.placeholderHeight;
+    }
+
+    updateCardHeight(card, newHeight) {
+        const idx = this.cards.indexOf(card);
+        if (idx === -1) return;
+        
+        this.columnHeights.fill(0);
+        
+        for (let i = 0; i < this.cards.length; i++) {
+            const c = this.cards[i];
+            this.positionCard(c, this._mediaHeight(c));
+        }
+    }
+    
+    reflowAll() {
+        this.calculateLayout();
+        this.columnHeights.fill(0);
+        
+        this.cards.forEach(card => {
+            card.style.width = `${this.columnWidth}px`;
+            this.positionCard(card, this._mediaHeight(card));
+        });
+    }
+    
+    updateCardWidths() {
+        this.calculateLayout();
+        this.cards.forEach(card => {
+            card.style.width = `${this.columnWidth}px`;
+        });
+        this.reflowAll();
+    }
+    
+    playVideo(video) {
+        // 放宽到 readyState>=1：元数据就绪即可发起 play()，浏览器会在缓冲好后自动开播，
+        // 规避首次进入资源栏时视频还没缓冲出帧(readyState=1)导致的"永不自动播放"问题
+        if (video.paused && video.readyState >= 1) {
+            video.play().catch(() => {});
+        }
+    }
+    
+    pauseVideo(video) {
+        if (!video.paused) {
+            video.pause();
+        }
+    }
+    
+    /**
+     * 关键修复：删除卡片方法
+     * 核心问题：原代码等待动画后才重新布局，导致视觉上卡片还在
+     * 解决方案：立即从数据结构移除并重新布局，DOM动画后移除
+     */
+    removeCard(card) {
+        const idx = this.cards.indexOf(card);
+        if (idx === -1) {
+            console.warn('[Waterfall] Card not found in cards array:', card.dataset?.id);
+            return;
+        }
+        
+        const cardId = card.dataset.id;
+        console.log('[Waterfall] Removing card:', cardId, 'at index:', idx, 'remaining:', this.cards.length - 1);
+        
+        // 1. 立即从数据结构中移除（这是关键！）
+        this.cards.splice(idx, 1);
+        this.cardDataMap.delete(cardId);
+        this.visibleCards.delete(cardId);
+        
+        // 2. 停止观察
+        this.intersectionObserver.unobserve(card);
+        
+        // 3. 立即重新布局剩余卡片（关键修复：在DOM移除前就开始计算新位置）
+        console.log('[Waterfall] Reflowing remaining cards...');
+        this.forceReflow();
+        
+        // 4. 添加退出动画并移除DOM
+        card.style.opacity = '0';
+        card.style.transform += ' scale(0.8)';
+        card.style.pointerEvents = 'none'; // 防止动画期间被点击
+        
+        // 5. 动画完成后移除DOM（此时布局已经更新，用户看到卡片飞出去的效果）
+        setTimeout(() => {
+            if (card.parentNode) {
+                card.parentNode.removeChild(card);
+                console.log('[Waterfall] Card DOM removed:', cardId);
+            }
+        }, 300);
+    }
+    
+    /**
+     * 强制重新计算整个瀑布流布局
+     * 关键修复：立即重新排列所有剩余卡片
+     */
+    forceReflow() {
+        // 重置列高度
+        this.columnHeights.fill(0);
+        
+        console.log('[Waterfall] Reflowing', this.cards.length, 'cards, columns:', this.columnCount);
+        
+        // 重新计算每个卡片的位置
+        this.cards.forEach((card, index) => {
+            // 更新卡片宽度
+            card.style.width = `${this.columnWidth}px`;
+            
+            // 获取卡片实际高度
+            const height = this._mediaHeight(card);
+            
+            // 找到最短的列
+            const minHeight = Math.min(...this.columnHeights);
+            const columnIndex = this.columnHeights.indexOf(minHeight);
+            
+            // 计算位置
+            const x = columnIndex * (this.columnWidth + this.gap);
+            const y = minHeight;
+            
+            // 应用位置
+            card.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+            
+            // 更新列高度
+            this.columnHeights[columnIndex] = y + height + this.gap;
+            
+            console.log(`[Waterfall] Card ${index} (${card.dataset.id}): col=${columnIndex}, x=${x.toFixed(0)}, y=${y.toFixed(0)}`);
+        });
+        
+        // 更新容器高度
+        this.updateContainerHeight();
+        
+        console.log('[Waterfall] Reflow complete. Column heights:', this.columnHeights.map(h => h.toFixed(0)));
+    }
+    
+    clear() {
+        this.cards.forEach(card => this.intersectionObserver.unobserve(card));
+        this.cards = [];
+        this.cardDataMap.clear();
+        this.visibleCards.clear();
+        this.container.innerHTML = '';
+        this.columnHeights.fill(0);
+        this.container.style.height = '0px';
+    }
+    
+    destroy() {
+        this.resizeObserver?.disconnect();
+        this.intersectionObserver?.disconnect();
+        this.clear();
+    }
+}  
+        </script>
+        <script>
+
+
+        // 实例化布局管理器
+        let waterfallLayout = null;
         /**
          * PNG Information Handler - Updated with Chunk Extraction/Injection
          */
@@ -649,6 +1457,409 @@
             }
         }
 
+        /* ============================================================
+         * Mp4InfoHandler — 读写 MP4 iTunes 风格元数据 (moov/udta/meta/keys+ilst)
+         * 与 PngInfoHandler 同一范式: readInfo(buffer) / writeInfo(buffer, entries)
+         * 注: ilst 中每条目的 box type 是 4 字节大端「key 序号」(1-based)，对应 keys 盒里的 key 名。
+         *     因为本工程视频的 moov 位于文件尾部，改写 udta 不会移动样本偏移(stco)，安全。
+         * ============================================================ */
+        (function (global) {
+            'use strict';
+            const enc = new TextEncoder();
+            const dec = new TextDecoder('utf-8');
+            function u32(view, pos) { return view.getUint32(pos, false); }
+            function str4(bytes, pos) { return String.fromCharCode(bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]); }
+            function findBox(view, bytes, start, end, name) {
+                let pos = start;
+                while (pos + 8 <= end) {
+                    const size = u32(view, pos);
+                    const nm = str4(bytes, pos + 4);
+                    let real = size;
+                    if (size === 1) { real = view.getUint32(pos + 8, false) >>> 0; real = (real * 0x100000000) + view.getUint32(pos + 12, false); }
+                    if (real < 8) break;
+                    if (nm === name) return { pos, size: real };
+                    pos += real;
+                }
+                return null;
+            }
+            function listChildren(view, bytes, start, end) {
+                const out = []; let pos = start;
+                while (pos + 8 <= end) {
+                    const size = u32(view, pos); const nm = str4(bytes, pos + 4);
+                    let real = size;
+                    if (size === 1) { real = view.getUint32(pos + 8, false) >>> 0; real = (real * 0x100000000) + view.getUint32(pos + 12, false); }
+                    if (real < 8) break;
+                    out.push({ name: nm, pos, size: real, bytes: bytes.subarray(pos, pos + real) });
+                    pos += real;
+                }
+                return out;
+            }
+            function buildBox(type, payload) {
+                const box = new Uint8Array(8 + payload.length);
+                const dv = new DataView(box.buffer);
+                dv.setUint32(0, 8 + payload.length, false);
+                box[4] = type.charCodeAt(0); box[5] = type.charCodeAt(1); box[6] = type.charCodeAt(2); box[7] = type.charCodeAt(3);
+                box.set(payload, 8); return box;
+            }
+            function concat(arrs) {
+                let total = 0; for (const a of arrs) total += a.length;
+                const out = new Uint8Array(total); let off = 0;
+                for (const a of arrs) { out.set(a, off); off += a.length; }
+                return out;
+            }
+            function u32bytes(n) { const a = new Uint8Array(4); new DataView(a.buffer).setUint32(0, n, false); return a; }
+
+            const Mp4InfoHandler = {
+                readInfo(buffer) {
+                    const bytes = (buffer instanceof Uint8Array) ? buffer : new Uint8Array(buffer);
+                    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+                    const moov = findBox(view, bytes, 0, bytes.length, 'moov');
+                    if (!moov) return null;
+                    const udta = findBox(view, bytes, moov.pos + 8, moov.pos + moov.size, 'udta');
+                    if (!udta) return null;
+                    const meta = findBox(view, bytes, udta.pos + 8, udta.pos + udta.size, 'meta');
+                    if (!meta) return null;
+                    const metaBody = meta.pos + 12;
+                    const keysBox = findBox(view, bytes, metaBody, meta.pos + meta.size, 'keys');
+                    const ilstBox = findBox(view, bytes, metaBody, meta.pos + meta.size, 'ilst');
+                    if (!ilstBox) return null;
+                    const keyMap = {};
+                    if (keysBox) {
+                        const kStart = keysBox.pos + 8;
+                        const cnt = u32(view, kStart + 4);
+                        let off = kStart + 8;
+                        for (let i = 0; i < cnt; i++) {
+                            const esz = u32(view, off);
+                            const keyName = dec.decode(bytes.subarray(off + 8, off + esz));
+                            keyMap[i + 1] = keyName; off += esz;
+                        }
+                    }
+                    const result = [];
+                    const ilstStart = ilstBox.pos + 8;
+                    let p = ilstStart;
+                    while (p + 8 <= ilstBox.pos + ilstBox.size) {
+                        const esz = u32(view, p);
+                        if (esz < 8) break;
+                        const index = (bytes[p + 4] << 24) | (bytes[p + 5] << 16) | (bytes[p + 6] << 8) | bytes[p + 7];
+                        const dataBox = findBox(view, bytes, p + 8, p + esz, 'data');
+                        let value = '', type = 0, key = keyMap[index] || ('#' + index);
+                        if (dataBox) {
+                            const dStart = dataBox.pos + 8;
+                            type = u32(view, dStart + 4);
+                            const valBytes = bytes.subarray(dStart + 8, dStart + 8 + (dataBox.size - 16));
+                            value = dec.decode(valBytes);
+                        }
+                        result.push({ index, key, value, type });
+                        p += esz;
+                    }
+                    return result.length ? result : null;
+                },
+                writeInfo(buffer, entries) {
+                    const bytes = (buffer instanceof Uint8Array) ? buffer : new Uint8Array(buffer);
+                    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+                    const moov = findBox(view, bytes, 0, bytes.length, 'moov');
+                    if (!moov) throw new Error('无效的 MP4：找不到 moov');
+                    function keyMapPut(map, key, value, index) { if (!map.has(key)) map.set(key, { key: key, value: value, type: 1, index: index }); }
+                    function keyByIndex(map, index) { for (const [k, v] of map) if (v.index === index) return k; return null; }
+                    const existing = new Map();
+                    let maxIndex = 0;
+                    let existingHdlr = null;
+                    const udta = findBox(view, bytes, moov.pos + 8, moov.pos + moov.size, 'udta');
+                    if (udta) {
+                        const meta = findBox(view, bytes, udta.pos + 8, udta.pos + udta.size, 'meta');
+                        if (meta) {
+                            const metaBody = meta.pos + 12;
+                            const keysBox = findBox(view, bytes, metaBody, meta.pos + meta.size, 'keys');
+                            const ilstBox = findBox(view, bytes, metaBody, meta.pos + meta.size, 'ilst');
+                            if (keysBox) {
+                                const kStart = keysBox.pos + 8;
+                                const cnt = u32(view, kStart + 4);
+                                let off = kStart + 8;
+                                for (let i = 0; i < cnt; i++) {
+                                    const esz = u32(view, off);
+                                    const keyName = dec.decode(bytes.subarray(off + 8, off + esz));
+                                    keyMapPut(existing, keyName, null, i + 1);
+                                    maxIndex = Math.max(maxIndex, i + 1); off += esz;
+                                }
+                            }
+                            if (ilstBox) {
+                                const ilstStart = ilstBox.pos + 8; let p = ilstStart;
+                                while (p + 8 <= ilstBox.pos + ilstBox.size) {
+                                    const esz = u32(view, p); if (esz < 8) break;
+                                    const index = (bytes[p + 4] << 24) | (bytes[p + 5] << 16) | (bytes[p + 6] << 8) | bytes[p + 7];
+                                    const dataBox = findBox(view, bytes, p + 8, p + esz, 'data');
+                                    if (dataBox) {
+                                        const dStart = dataBox.pos + 8;
+                                        const type = u32(view, dStart + 4);
+                                        const valBytes = bytes.subarray(dStart + 8, dStart + 8 + (dataBox.size - 16));
+                                        const keyName = keyByIndex(existing, index);
+                                        if (keyName) { existing.get(keyName).value = dec.decode(valBytes); existing.get(keyName).type = type; }
+                                    }
+                                    p += esz;
+                                }
+                            }
+                            const hdlr = findBox(view, bytes, metaBody, meta.pos + meta.size, 'hdlr');
+                            if (hdlr) existingHdlr = bytes.subarray(hdlr.pos, hdlr.pos + hdlr.size);
+                        }
+                    }
+                    for (const e of entries) {
+                        if (existing.has(e.key)) { existing.get(e.key).value = e.value; if (e.type != null) existing.get(e.key).type = e.type; }
+                        else { maxIndex++; existing.set(e.key, { key: e.key, value: e.value, type: e.type != null ? e.type : 1, index: maxIndex }); }
+                    }
+                    const list = [...existing.values()].sort((a, b) => a.index - b.index);
+                    list.forEach((v, i) => v.index = i + 1);
+                    const keyEntries = list.map(v => {
+                        const kb = enc.encode(v.key);
+                        const entry = new Uint8Array(8 + kb.length);
+                        const dv = new DataView(entry.buffer);
+                        dv.setUint32(0, 8 + kb.length, false);
+                        entry[4] = 0x6b; entry[5] = 0x65; entry[6] = 0x79; entry[7] = 0x20;
+                        entry.set(kb, 8); return entry;
+                    });
+                    const keysPayload = concat([new Uint8Array([0, 0, 0, 0]), u32bytes(list.length), ...keyEntries]);
+                    const keysBox = buildBox('keys', keysPayload);
+                    const ilstEntries = list.map(v => {
+                        const vb = enc.encode(v.value);
+                        const dataPayload = concat([u32bytes(v.type), new Uint8Array([0, 0, 0, 0]), vb]);
+                        const dataBox = buildBox('data', dataPayload);
+                        const entry = new Uint8Array(8 + dataBox.length);
+                        const dv = new DataView(entry.buffer);
+                        dv.setUint32(0, 8 + dataBox.length, false);
+                        dv.setUint32(4, v.index, false);
+                        entry.set(dataBox, 8); return entry;
+                    });
+                    const ilstBox = buildBox('ilst', concat(ilstEntries));
+                    const metaChildren = [];
+                    if (existingHdlr) metaChildren.push(existingHdlr);
+                    metaChildren.push(keysBox, ilstBox);
+                    const metaBox = buildBox('meta', concat([new Uint8Array([0, 0, 0, 0]), ...metaChildren]));
+                    const udtaChildren = [];
+                    if (udta) { for (const c of listChildren(view, bytes, udta.pos + 8, udta.pos + udta.size)) if (c.name !== 'meta') udtaChildren.push(c.bytes); }
+                    udtaChildren.push(metaBox);
+                    const udtaBox = buildBox('udta', concat(udtaChildren));
+                    const moovChildren = [];
+                    for (const c of listChildren(view, bytes, moov.pos + 8, moov.pos + moov.size)) moovChildren.push(c.name === 'udta' ? udtaBox : c.bytes);
+                    if (!udta) moovChildren.push(udtaBox);
+                    const newMoov = buildBox('moov', concat(moovChildren));
+                    const out = new Uint8Array(bytes.length - moov.size + newMoov.length);
+                    out.set(bytes.subarray(0, moov.pos), 0);
+                    out.set(newMoov, moov.pos);
+                    out.set(bytes.subarray(moov.pos + moov.size), moov.pos + newMoov.length);
+                    return out;
+                }
+            };
+            if (typeof module !== 'undefined' && module.exports) module.exports = Mp4InfoHandler;
+            global.Mp4InfoHandler = Mp4InfoHandler;
+        })(typeof window !== 'undefined' ? window : globalThis);
+
+        /* ============================================================
+         * WebmInfoHandler — 读写 Matroska/WebM 的 Attachments 元素
+         * 与 Mp4InfoHandler 同一接口：readInfo(buffer) / writeInfo(buffer, entries)
+         * 用于「视频嵌入模式」在 WebM 容器里嵌入 resources（Firefox/Safari 走此路径）
+         * 注：Attachments 插入到首个 Cluster 之前，避免位移 Cluster 导致 Cues 失效
+         * ============================================================ */
+        (function initWebmInfo() {
+            const g = (typeof window !== 'undefined') ? window : globalThis;
+
+            // Matroska EBML 元素 ID（常量字节）
+            const EBML_HEADER_ID = [0x1A,0x45,0xDF,0xA3];
+            const SEGMENT_ID     = [0x18,0x53,0x80,0x67];
+            const ATTACHMENTS_ID = [0x19,0x41,0xA4,0x69];
+            const ATTACHEDFILE_ID= [0x61,0xA7];
+            const FILEDESC_ID    = [0x46,0x7E];
+            const FILENAME_ID    = [0x46,0x6E];
+            const FILEMIME_ID    = [0x46,0x60];
+            const FILEDATA_ID    = [0x46,0x5C];
+            const FILEUID_ID     = [0x46,0xAE];
+            const CLUSTER_ID     = [0x1F,0x43,0xB6,0x75];
+            const CUES_ID        = [0x1C,0x53,0xBB,0x6B];
+            const MARKER_DESC    = 'pngpkg-embed'; // FileDescription 标记，用于辨认本工具写入的附件
+
+            const _enc = (typeof TextEncoder !== 'undefined') ? new TextEncoder() : null;
+            function utf8(s) { return _enc ? _enc.encode(s) : new Uint8Array(Buffer.from(s, 'utf-8')); }
+            function utf8Decode(u8) {
+                if (typeof TextDecoder !== 'undefined') return new TextDecoder('utf-8').decode(u8);
+                return Buffer.from(u8).toString('utf-8');
+            }
+            function eqId(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
+            function idBytesMatch(bytes, pos, id) { return eqId(bytes.subarray(pos, pos + id.length), id); }
+
+            // 读 VINT：返回 [value, length]；length 为 0 表示无效
+            // EBML VINT 长度 N = 首字节前导 0 的个数 + 1（全部为 1 即未知尺寸）
+            function readVint(bytes, pos) {
+                if (pos >= bytes.length) return [0, 0];
+                const first = bytes[pos];
+                let mask = 0x80, len = 1;
+                while (len < 8 && (first & mask) === 0) { mask >>= 1; len++; }
+                if (len > 8) return [0, 0];
+                let value = first & (mask - 1);
+                for (let i = 1; i < len; i++) {
+                    if (pos + i >= bytes.length) return [0, 0];
+                    value = value * 256 + bytes[pos + i];
+                }
+                return [value, len];
+            }
+
+            function isUnknownSize(bytes, pos, len) {
+                for (let i = 0; i < len; i++) { if (bytes[pos + i] !== 0xFF) return false; }
+                return true;
+            }
+
+            // 写 VINT（已知长度）：长度 N = 前导 0 个数 + 1，值占 7*N 位
+            function writeVint(value) {
+                let N = 1;
+                while (N < 8 && value > Math.pow(2, 7 * N) - 1) N++;
+                const out = new Uint8Array(N);
+                let v = value;
+                for (let i = N - 1; i >= 0; i--) { out[i] = v & 0xFF; v = Math.floor(v / 256); }
+                out[0] |= (0x80 >> (N - 1)); // 长度标记位
+                return out;
+            }
+
+            function concat(arrs) {
+                let len = 0; for (const a of arrs) len += a.length;
+                const out = new Uint8Array(len); let o = 0;
+                for (const a of arrs) { out.set(a, o); o += a.length; }
+                return out;
+            }
+
+            function ebmlEl(id, data) {
+                const size = writeVint(data.length);
+                const out = new Uint8Array(id.length + size.length + data.length);
+                out.set(id, 0); out.set(size, id.length); out.set(data, id.length + size.length);
+                return out;
+            }
+
+            // 解析 [start,end) 内的直接子元素（遇未知尺寸元素即停止）
+            function parseChildren(bytes, start, end) {
+                const out = []; let p = start;
+                while (p + 2 <= end) {
+                    const [id, idLen] = readVint(bytes, p);
+                    if (idLen === 0) break;
+                    const [size, sizeLen] = readVint(bytes, p + idLen);
+                    if (sizeLen === 0) break;
+                    const unknown = isUnknownSize(bytes, p + idLen, sizeLen);
+                    const dataStart = p + idLen + sizeLen;
+                    let dataEnd = unknown ? end : dataStart + size;
+                    if (!unknown && dataEnd > end) dataEnd = end;
+                    out.push({ id, idLen, sizeLen, size, unknown, start: p, dataStart, dataEnd });
+                    if (unknown) break;
+                    p = dataEnd;
+                }
+                return out;
+            }
+
+            function findSegment(bytes) {
+                let p = 0;
+                while (p + 8 <= bytes.length) {
+                    const [id, idLen] = readVint(bytes, p);
+                    if (idLen === 0) break;
+                    const [size, sizeLen] = readVint(bytes, p + idLen);
+                    if (sizeLen === 0) break;
+                    const unknown = isUnknownSize(bytes, p + idLen, sizeLen);
+                    const dataStart = p + idLen + sizeLen;
+                    const dataEnd = unknown ? bytes.length : dataStart + size;
+                    if (idBytesMatch(bytes, p, SEGMENT_ID)) {
+                        return { start: p, idLen, sizeLen, unknown, dataStart, dataEnd };
+                    }
+                    p = dataEnd;
+                }
+                return null;
+            }
+
+            const WebmInfoHandler = {
+                readInfo(buffer) {
+                    const bytes = (buffer instanceof Uint8Array) ? buffer : new Uint8Array(buffer);
+                    const seg = findSegment(bytes);
+                    if (!seg) return [];
+                    const segEnd = seg.unknown ? bytes.length : seg.dataEnd;
+                    const children = parseChildren(bytes, seg.dataStart, segEnd);
+                    const entries = []; let index = 0;
+                    for (const ch of children) {
+                        if (!idBytesMatch(bytes, ch.start, ATTACHMENTS_ID)) continue;
+                        const files = parseChildren(bytes, ch.dataStart, ch.dataEnd);
+                        for (const af of files) {
+                            if (!idBytesMatch(bytes, af.start, ATTACHEDFILE_ID)) continue;
+                            const sub = parseChildren(bytes, af.dataStart, af.dataEnd);
+                            let key = null, value = null, isOurs = false;
+                            for (const s of sub) {
+                                if (idBytesMatch(bytes, s.start, FILENAME_ID)) key = utf8Decode(bytes.subarray(s.dataStart, s.dataEnd));
+                                else if (idBytesMatch(bytes, s.start, FILEDATA_ID)) value = utf8Decode(bytes.subarray(s.dataStart, s.dataEnd));
+                                else if (idBytesMatch(bytes, s.start, FILEDESC_ID)) { if (utf8Decode(bytes.subarray(s.dataStart, s.dataEnd)) === MARKER_DESC) isOurs = true; }
+                            }
+                            if (key && value != null && (isOurs || key === 'resources')) entries.push({ key, value, type: 1, index: ++index });
+                        }
+                    }
+                    return entries;
+                },
+
+                writeInfo(buffer, entries) {
+                    const bytes = (buffer instanceof Uint8Array) ? buffer : new Uint8Array(buffer);
+                    const seg = findSegment(bytes);
+                    if (!seg) throw new Error('不是有效的 WebM/Matroska 文件（找不到 Segment）');
+                    const segEnd = seg.unknown ? bytes.length : seg.dataEnd;
+                    const children = parseChildren(bytes, seg.dataStart, segEnd);
+
+                    // 锚点：首个 Cluster（或 Cues）之前插入，避免位移 Cluster 破坏 Cues
+                    let anchorStart = segEnd;
+                    for (const ch of children) {
+                        if (idBytesMatch(bytes, ch.start, CLUSTER_ID) || idBytesMatch(bytes, ch.start, CUES_ID)) { anchorStart = ch.start; break; }
+                    }
+                    const prefixParts = [];
+                    for (const ch of children) {
+                        if (ch.start >= anchorStart) break;
+                        if (idBytesMatch(bytes, ch.start, ATTACHMENTS_ID)) continue; // 丢弃旧 Attachments
+                        prefixParts.push(bytes.subarray(ch.start, ch.dataEnd));
+                    }
+                    const prefix = concat(prefixParts);
+                    const tail = bytes.subarray(anchorStart, segEnd);
+
+                    const fileEls = [];
+                    for (const e of entries) {
+                        if (!e || !e.key) continue;
+                        const dataBytes = utf8(String(e.value != null ? e.value : ''));
+                        const afParts = [
+                            ebmlEl(FILEDESC_ID, utf8(MARKER_DESC)),
+                            ebmlEl(FILENAME_ID, utf8(e.key)),
+                            ebmlEl(FILEMIME_ID, utf8('application/json')),
+                            ebmlEl(FILEDATA_ID, dataBytes),
+                            ebmlEl(FILEUID_ID, new Uint8Array([0,0,0,0,0,0,0,1]))
+                        ];
+                        fileEls.push(ebmlEl(ATTACHEDFILE_ID, concat(afParts)));
+                    }
+                    const newAttachments = ebmlEl(ATTACHMENTS_ID, concat(fileEls));
+                    const newBody = concat([prefix, newAttachments, tail]);
+
+                    // 重写 Segment：保留 Segment 之前内容 + id + 新 size + 新 body
+                    const segSize = writeVint(newBody.length);
+                    const out = new Uint8Array(seg.start + seg.idLen + segSize.length + newBody.length);
+                    out.set(bytes.subarray(0, seg.start), 0);
+                    out.set(SEGMENT_ID, seg.start);
+                    out.set(segSize, seg.start + seg.idLen);
+                    out.set(newBody, seg.start + seg.idLen + segSize.length);
+                    return out;
+                }
+            };
+
+            // 容器探测：'webm' / 'mp4' / null
+            function containerOf(buffer) {
+                const bytes = (buffer instanceof Uint8Array) ? buffer : new Uint8Array(buffer);
+                if (bytes.length >= 4 && bytes[0]===0x1A && bytes[1]===0x45 && bytes[2]===0xDF && bytes[3]===0xA3) return 'webm';
+                if (bytes.length >= 8 && bytes[4]===0x66 && bytes[5]===0x74 && bytes[6]===0x79 && bytes[7]===0x70) return 'mp4';
+                return null;
+            }
+
+            // 按容器返回对应 Handler（与 Mp4InfoHandler 接口一致）
+            function getInfoHandler(buffer) {
+                return (containerOf(buffer) === 'webm') ? WebmInfoHandler : (g.Mp4InfoHandler || Mp4InfoHandler);
+            }
+
+            if (typeof module !== 'undefined' && module.exports) module.exports = WebmInfoHandler;
+            g.WebmInfoHandler = WebmInfoHandler;
+            g.getInfoHandler = getInfoHandler;
+            g.containerOf = containerOf;
+        })(typeof window !== 'undefined' ? window : globalThis);
+
         function gilbert2d(width, height) {
             const coordinates = [];
             if (width >= height) { generate2d(0, 0, width, 0, 0, height, coordinates); } else { generate2d(0, 0, 0, height, width, 0, coordinates); }
@@ -686,6 +1897,8 @@
         const btnEncrypt = document.getElementById('btn-encrypt');
         const btnDecrypt = document.getElementById('btn-decrypt');
         const btnDownload = document.getElementById('btn-download');
+        const btnVembed = document.getElementById('btn-vembed');
+        const embedInput = document.getElementById('embed-input');
         
         const offsetSlider = document.getElementById('offset-slider');
         const offsetInput = document.getElementById('offset-input');
@@ -716,12 +1929,41 @@
         let currentModalIndex = -1;
         let sourceUnknownTextChunks = []; // Store raw unknown chunks from source image
         let userHasModifiedResources = false; // Flag to track if user added new resources
+        let isVideoEmbedMode = false; // 视频嵌入模式：主图被编码为单帧 MP4，下载导出该视频
+        let lastMainFileName = '';     // 主文件原始名（用于下载命名）
 
         // 新增：手势相关状态
         let gestureStartX = null;
         let currentGestureDirection = null; // 'ltr' | 'rtl'
         let gestureDropTimer = null;
 
+
+        const mediaObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                const card = entry.target;
+                const mediaDiv = card.querySelector('.waterfall-media');
+                
+                if (entry.isIntersecting) {
+                    // 进入视口：加载实际媒体
+                    if (!mediaDiv.dataset.loaded) {
+                        const idx = parseInt(card.dataset.index);
+                        loadMediaLazy(idx, mediaDiv);
+                        mediaDiv.dataset.loaded = 'true';
+                    }
+                    // 恢复视频预加载
+                    const video = mediaDiv.querySelector('video');
+                    if (video) video.preload = 'metadata';
+                } else {
+                    // 离开视口：暂停视频释放解码内存
+                    const video = mediaDiv.querySelector('video');
+                    if (video && !video.paused) video.pause();
+                }
+            });
+        }, {
+            root: waterfallContainer,
+            rootMargin: '100px', // 提前100px开始加载
+            threshold: 0.05
+        });
 
         // 手势设置持久化
         function saveGestureSetting() {
@@ -744,6 +1986,17 @@
             btnEncrypt.disabled = isLoading || !displayImg.src;
             btnDecrypt.disabled = isLoading || !displayImg.src;
             btnDownload.disabled = isLoading || !displayImg.src;
+        }
+
+        // 根据当前模式刷新按钮文案 / 可用状态
+        function updateEmbedUI() {
+            if (isVideoEmbedMode) {
+                btnDownload.textContent = '⬇️ 下载嵌入视频 (单帧视频)';
+                if (btnVembed) btnVembed.disabled = !displayImg.src;
+            } else {
+                btnDownload.textContent = '⬇️ 下载结果 (含资源)';
+                if (btnVembed) btnVembed.disabled = true;
+            }
         }
 
         function updateOffsetFromSlider() {
@@ -769,40 +2022,139 @@
                 else btn.classList.remove('active');
             });
             
-            if(viewName === 'view-main') {
-                viewMain.classList.add('active-view');
-                viewResources.classList.remove('active-view');
-            } else {
-                viewMain.classList.remove('active-view');
-                viewResources.classList.add('active-view');
+            viewMain.classList.toggle('active-view', viewName === 'view-main');
+            viewResources.classList.toggle('active-view', viewName === 'view-resources');
+            if (viewName === 'view-resources' && window.waterfallInstance) {
+                requestAnimationFrame(() => window.waterfallInstance.reflowAll());
             }
         }
         toggleBtns.forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.target)));
 
-        // Attachments Logic
-        function processAttachments(files) {
-            if(!files.length) return;
-            // User has manually added/modified resources
-            userHasModifiedResources = true; 
+        // 资源瀑布流全屏查看（方便移动端用户查看资源）
+        const waterfallFsBtn = document.getElementById('waterfall-fs-btn');
+        const waterfallFsOverlay = document.getElementById('waterfall-fs-overlay');
+        const waterfallFsHolder = document.getElementById('waterfall-fs-holder');
+        const waterfallFsClose = document.getElementById('waterfall-fs-close');
+        let fsReturnParent = null, fsReturnNext = null; // 移回时的锚点
+        function setWaterfallFullscreen(goFs) {
+            const isFs = waterfallFsOverlay.classList.contains('active');
+            const want = (typeof goFs === 'boolean') ? goFs : !isFs;
+            if (want === isFs) return;
+            if (want) {
+                // 记录瀑布流容器在原视图中的位置，并把它搬进模态窗
+                fsReturnParent = waterfallContainer.parentNode;
+                fsReturnNext = waterfallContainer.nextSibling;
+                waterfallFsHolder.appendChild(waterfallContainer);
+                waterfallFsOverlay.classList.add('active');
+                waterfallFsBtn.textContent = '✕';
+                waterfallFsBtn.title = '退出全屏';
+                waterfallFsBtn.setAttribute('aria-label', '退出全屏');
+            } else {
+                waterfallFsOverlay.classList.remove('active');
+                // 还原：把瀑布流容器移回原视图（插入到原位置）
+                if (fsReturnParent) {
+                    if (fsReturnNext && fsReturnNext.parentNode === fsReturnParent) {
+                        fsReturnParent.insertBefore(waterfallContainer, fsReturnNext);
+                    } else {
+                        fsReturnParent.appendChild(waterfallContainer);
+                    }
+                    fsReturnParent = null; fsReturnNext = null;
+                }
+                waterfallFsBtn.textContent = '⛶';
+                waterfallFsBtn.title = '全屏查看资源';
+                waterfallFsBtn.setAttribute('aria-label', '全屏查看资源');
+            }
+            // 容器宽度/定位变化后重排（ResizeObserver 也会触发，这里再兜底）
+            if (window.waterfallInstance) {
+                requestAnimationFrame(() => window.waterfallInstance.reflowAll());
+                setTimeout(() => { if (window.waterfallInstance) window.waterfallInstance.reflowAll(); }, 60);
+            }
+        }
+        waterfallFsBtn.addEventListener('click', () => setWaterfallFullscreen());
+        waterfallFsClose.addEventListener('click', () => setWaterfallFullscreen(false));
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && waterfallFsOverlay.classList.contains('active')) {
+                setWaterfallFullscreen(false);
+            }
+        });
+        window.addEventListener('resize', () => {
+            if (waterfallFsOverlay.classList.contains('active') && window.waterfallInstance) {
+                window.waterfallInstance.reflowAll();
+            }
+        });
 
-            Array.from(files).forEach(file => {
+        function processSingleFile(file) {
+            return new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.onload = (evt) => {
-                    const bytes = new Uint8Array(evt.target.result);
-                    let binary = ''; for(let i=0; i<bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-                    const base64Data = btoa(binary);
-                    
-                    let type='object', keyword='object', mime=file.type || 'app/octet-stream';
-                    if(file.type.startsWith('image/')) { type='image'; keyword='image'; }
-                    else if(file.type.startsWith('video/')) { type='video'; keyword='video'; }
-                    else if(file.type.startsWith('text/')) { type='text'; }
+                    try {
+                        const bytes = new Uint8Array(evt.target.result);
+                        
+                        // 优化：分块转换base64，避免大数组栈溢出
+                        let binary = '';
+                        const chunkSize = 65536; // 64KB chunks
+                        for(let i = 0; i < bytes.length; i += chunkSize) {
+                            const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
+                            binary += String.fromCharCode.apply(null, chunk);
+                        }
+                        const base64Data = btoa(binary);
+                        
+                        let type='object', keyword='object', mime=file.type || 'app/octet-stream';
+                        if(file.type.startsWith('image/')) { type='image'; keyword='image'; }
+                        else if(file.type.startsWith('video/')) { type='video'; keyword='video'; }
+                        else if(file.type.startsWith('text/')) { type='text'; }
 
-                    currentAttachments.push({ type, mime, data: base64Data, keyword, filename: file.name });
-                    renderWaterfall();
+                        currentAttachments.push({
+                            type, mime, data: base64Data, keyword, 
+                            filename: file.name,
+                            size: file.size // 记录大小用于显示
+                        });
+                    } catch (err) {
+                        console.error('处理文件失败:', file.name, err);
+                    }
+                    resolve();
                 };
+                reader.onerror = () => resolve(); // 容错
                 reader.readAsArrayBuffer(file);
             });
-            setStatus(`正在添加 ${files.length} 个文件...`);
+        }
+        // Attachments Logic
+        async function processAttachments(files) {
+            if(!files.length) return;
+            userHasModifiedResources = true;
+            
+            // 分批处理，每批3个，避免UI阻塞和内存峰值
+            const batchSize = 3;
+            const fileArray = Array.from(files);
+            let processed = 0;
+            
+            setStatus(`正在处理 0/${fileArray.length} 个文件...`);
+            
+            for (let i = 0; i < fileArray.length; i += batchSize) {
+                const batch = fileArray.slice(i, i + batchSize);
+                
+                // 并行处理当前批次
+                await Promise.all(batch.map(file => processSingleFile(file)));
+                
+                processed += batch.length;
+                setStatus(`已处理 ${processed}/${fileArray.length} 个文件...`);
+                
+                // 每处理一批更新一次瀑布流（增量渲染）
+                if (i === 0) {
+                    renderWaterfall(); // 第一批立即渲染
+                } else {
+                    // 后续批次只追加DOM，不重新渲染全部（可选优化）
+                    // 为简单起见，这里仍重新渲染，但分批处理已避免卡顿
+                    renderWaterfall();
+                }
+                
+                // 让出主线程，防止卡死
+                if (i + batchSize < fileArray.length) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+            }
+            
+            setStatus(`完成，共添加 ${fileArray.length} 个文件`);
         }
 
         function deleteAttachment(index) {
@@ -839,90 +2191,215 @@
         }
 
         function renderWaterfall() {
-            waterfallContainer.innerHTML = '';
-            if(currentAttachments.length === 0) {
+            const container = document.getElementById('waterfall-container');
+            const resPlaceholder = document.getElementById('res-placeholder');
+            
+            if (currentAttachments.length === 0) {
                 resPlaceholder.style.display = 'flex';
+                if (window.waterfallInstance) {
+                    window.waterfallInstance.clear();
+                }
                 setStatus('资源列表为空');
                 return;
             }
+            
             resPlaceholder.style.display = 'none';
-            setStatus(`当前资源数: ${currentAttachments.length}`);
-
-            currentAttachments.forEach((attach, idx) => {
-                const card = document.createElement('div');
-                card.className = 'waterfall-card';
+            
+            if (!window.waterfallInstance) {
+                window.waterfallInstance = new HighPerformanceWaterfall(container, {
+                    gap: 15,
+                    placeholderHeight: 220
+                });
+            } else {
+                window.waterfallInstance.clear();
+            }
+            
+            let index = 0;
+            const batchSize = 8;
+            
+            function processBatch() {
+                const batch = currentAttachments.slice(index, index + batchSize);
                 
-                const mediaDiv = document.createElement('div');
-                mediaDiv.className = 'waterfall-media';
-                mediaDiv.onclick = (e) => { if(!e.target.classList.contains('card-delete-btn') && !e.target.classList.contains('card-download-btn')) openModal(idx); };
-
-                if(attach.type === 'image') {
-                    const img = document.createElement('img'); 
-                    img.src = `data:${attach.mime};base64,${attach.data}`;
-                    mediaDiv.appendChild(img);
-                } else if (attach.type === 'video') {
-                    const video = document.createElement('video'); 
-                    video.src = `data:${attach.mime};base64,${attach.data}`;
-                    video.muted = true;
-                    mediaDiv.appendChild(video);
+                batch.forEach((attach, idx) => {
+                    if (!attach.id) attach.id = Math.random().toString(36).substr(2, 9);
+                    
+                    let aspectRatio = 0;
+                    if (attach.width && attach.height) {
+                        aspectRatio = attach.width / attach.height;
+                    }
+                    
+                    window.waterfallInstance.addCard({
+                        id: attach.id,
+                        index: index + idx,
+                        type: attach.type,  // 'image' | 'video' | 'object' | 'text'
+                        filename: attach.filename,
+                        size: attach.size || 0,
+                        mime: attach.mime,
+                        data: attach.data,
+                        aspectRatio: aspectRatio,
+                        onDelete: (data) => {
+                            const arrIdx = currentAttachments.findIndex(a => a.id === data.id);
+                            if (arrIdx > -1) {
+                                currentAttachments.splice(arrIdx, 1);
+                                userHasModifiedResources = true;
+                                setStatus(`已删除 ${data.filename}，剩余 ${currentAttachments.length} 个文件`);
+                            }
+                        },
+                        onDownload: (data) => {
+                            const attach = currentAttachments.find(a => a.id === data.id);
+                            if (attach) downloadAttachment(attach);
+                        },
+                        onClick: (data) => {
+                            openModal(data.index);
+                        }
+                    });
+                });
+                
+                index += batchSize;
+                
+                if (index < currentAttachments.length) {
+                    requestAnimationFrame(processBatch);
                 } else {
-                    const icon = document.createElement('div');
-                    icon.style.height = '150px'; icon.style.display = 'flex'; 
-                    icon.style.alignItems = 'center'; icon.style.justifyContent = 'center';
-                    icon.style.color = '#94a3b8'; icon.style.fontSize = '2rem';
-                    icon.textContent = '📄';
-                    mediaDiv.appendChild(icon);
+                    setStatus(`已加载 ${currentAttachments.length} 个资源`);
                 }
-
-                const info = document.createElement('div');
-                info.className = 'waterfall-info';
-                const name = document.createElement('div');
-                name.className = 'waterfall-filename';
-                name.textContent = attach.filename;
-                const type = document.createElement('div');
-                type.className = 'waterfall-type';
-                type.textContent = attach.type.toUpperCase();
-                info.append(name, type);
-
-                const delBtn = document.createElement('button');
-                delBtn.className = 'card-delete-btn'; delBtn.innerHTML = '&times;';
-                delBtn.onclick = (e) => { e.stopPropagation(); deleteAttachment(idx); };
-
-                // 新增：下载按钮
-                const downloadBtn = document.createElement('button');
-                downloadBtn.className = 'card-download-btn'; 
-                downloadBtn.innerHTML = '⬇';
-                downloadBtn.title = '下载此资源';
-                downloadBtn.style.cssText = `
-                    position: absolute; top: 5px; right: 34px;
-                    background: rgba(0,0,0,0.6); color: white;
-                    border: none; width: 24px; height: 24px; border-radius: 50%;
-                    cursor: pointer; display: flex; align-items: center; justify-content: center;
-                    opacity: 0; transition: opacity 0.2s; font-size: 12px;
-                `;
-                downloadBtn.onmouseenter = () => downloadBtn.style.background = '#3b82f6';
-                downloadBtn.onmouseleave = () => downloadBtn.style.background = 'rgba(0,0,0,0.6)';
-                downloadBtn.onclick = (e) => { 
-                    e.stopPropagation(); 
-                    downloadAttachment(attach); 
-                };
-
-                // 修改 hover 效果：同时显示删除和下载按钮
-                card.onmouseenter = () => {
-                    delBtn.style.opacity = '1';
-                    downloadBtn.style.opacity = '1';
-                };
-                card.onmouseleave = () => {
-                    delBtn.style.opacity = '0';
-                    downloadBtn.style.opacity = '0';
-                };
-
-                card.append(mediaDiv, info, delBtn, downloadBtn);
-                waterfallContainer.appendChild(card);
-            });
+            }
+            
+            processBatch();
         }
-
-
+        
+        function createLazyCard(attach, idx) {
+            const card = document.createElement('div');
+            card.className = 'waterfall-card';
+            card.dataset.index = idx;
+            // 移除 opacity: 0，避免影响初始布局计算
+            card.style.transition = 'transform 0.2s, box-shadow 0.2s, top 0.3s, left 0.3s';
+            
+            const mediaDiv = document.createElement('div');
+            mediaDiv.className = 'waterfall-media';
+            mediaDiv.dataset.loaded = 'false';
+            
+            // 初始显示占位符
+            const sizeText = attach.size ? `${(attach.size / 1024).toFixed(0)}KB` : '';
+            mediaDiv.innerHTML = `
+                <div class="waterfall-placeholder">
+                    <div>${attach.type === 'image' ? '🖼️' : attach.type === 'video' ? '🎬' : '📄'}</div>
+                    <div class="waterfall-placeholder-size">${sizeText}</div>
+                </div>
+            `;
+            
+            // 点击打开模态框
+            card.onclick = (e) => {
+                if(e.target.closest('.card-delete-btn') || e.target.closest('.card-download-btn')) return;
+                openModal(idx);
+            };
+            
+            // 信息栏
+            const info = document.createElement('div');
+            info.className = 'waterfall-info';
+            info.innerHTML = `
+                <div class="waterfall-filename" title="${attach.filename}">${attach.filename}</div>
+                <div class="waterfall-type">${attach.type.toUpperCase()}</div>
+            `;
+            
+            // 删除按钮
+            const delBtn = document.createElement('button');
+            delBtn.className = 'card-delete-btn';
+            delBtn.innerHTML = '&times;';
+            delBtn.onclick = (e) => { 
+                e.stopPropagation(); 
+                deleteAttachment(idx); 
+            };
+            
+            // 下载按钮
+            const downloadBtn = document.createElement('button');
+            downloadBtn.className = 'card-download-btn';
+            downloadBtn.innerHTML = '⬇';
+            downloadBtn.title = '下载';
+            downloadBtn.style.cssText = `
+                position:absolute;top:5px;right:34px;background:rgba(0,0,0,0.6);
+                color:white;border:none;width:24px;height:24px;border-radius:50%;
+                cursor:pointer;display:flex;align-items:center;justify-content:center;
+                opacity:0;transition:opacity 0.2s;font-size:12px;z-index:2;
+            `;
+            downloadBtn.onmouseenter = () => downloadBtn.style.background = '#3b82f6';
+            downloadBtn.onmouseleave = () => downloadBtn.style.background = 'rgba(0,0,0,0.6)';
+            downloadBtn.onclick = (e) => { 
+                e.stopPropagation(); 
+                downloadAttachment(attach); 
+            };
+            
+            card.onmouseenter = () => { 
+                delBtn.style.opacity = '1'; 
+                downloadBtn.style.opacity = '1'; 
+            };
+            card.onmouseleave = () => { 
+                delBtn.style.opacity = '0'; 
+                downloadBtn.style.opacity = '0'; 
+            };
+            
+            card.appendChild(mediaDiv);
+            card.appendChild(info);
+            card.appendChild(delBtn);
+            card.appendChild(downloadBtn);
+            
+            return card;
+        }
+        
+        // 按需加载媒体内容
+        function loadMediaLazy(idx, container) {
+            const attach = currentAttachments[idx];
+            if (!attach || container.dataset.loaded === 'true') return;
+            
+            container.dataset.loaded = 'true';
+            container.innerHTML = '';
+            
+            if(attach.type === 'image') {
+                const img = new Image();
+                img.style.width = '100%';
+                img.style.display = 'block';
+                img.style.height = 'auto';
+                
+                img.onload = () => {
+                    // 图片加载完成后，强制立即重排（使用 RAF 确保 DOM 已更新）
+                    requestAnimationFrame(() => {
+                        if (waterfallLayout) waterfallLayout.layout();
+                    });
+                };
+                
+                img.src = `data:${attach.mime};base64,${attach.data}`;
+                container.appendChild(img);
+            } 
+            else if (attach.type === 'video') {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.controls = true;
+                video.muted = true;
+                video.playsInline = true;
+                video.autoplay = true;
+                video.style.width = '100%';
+                video.style.display = 'block';
+                
+                // 视频元数据加载后（知道真实高度了）立即重排
+                video.onloadedmetadata = () => {
+                    requestAnimationFrame(() => {
+                        if (waterfallLayout) waterfallLayout.layout();
+                    });
+                    // 尝试播放
+                    video.play().catch(() => {});
+                };
+                
+                video.src = `data:${attach.mime};base64,${attach.data}`;
+                container.appendChild(video);
+            } 
+            else {
+                container.innerHTML = `
+                    <div class="waterfall-placeholder" style="height:120px;">
+                        <div>📄</div>
+                        <div style="font-size:12px;">文本文件</div>
+                    </div>
+                `;
+            }
+        }
 
         attachInput.addEventListener('change', (e) => {
             processAttachments(e.target.files);
@@ -1116,27 +2593,92 @@
         });
 
         // 修改函数签名，添加可选回调
-        function handleMainFile(file, onLoadComplete = null) {
+        async function handleMainFile(file, onLoadComplete = null) {
             if(!file) return;
+            lastMainFileName = file.name;
             if(file.type.startsWith('video/')) {
-                setStatus('提取视频帧...');
-                const video = document.createElement('video');
-                video.src = URL.createObjectURL(file);
-                video.muted = true; video.crossOrigin = 'anonymous';
-                video.onloadeddata = () => { video.currentTime = 0.1; };
-                video.onseeked = () => {
-                    const cvs = document.createElement('canvas');
-                    cvs.width = video.videoWidth || 640; cvs.height = video.videoHeight || 360;
-                    const ctx = cvs.getContext('2d'); ctx.drawImage(video,0,0);
-                    // 视频帧加载完成后触发回调
-                    loadMainImage(cvs.toDataURL('image/jpeg', 0.9), null, onLoadComplete);
-                    currentAttachments = [];
-                    userHasModifiedResources = false; 
-                    processAttachments([file]);
-                    URL.revokeObjectURL(video.src);
+                // 先检测视频是否含本工具嵌入的资源，再决定「解码」还是「嵌入」
+                setStatus('检测视频是否含嵌入资源...');
+                let embedded = null;
+                try {
+                    const bytes = new Uint8Array(await file.arrayBuffer());
+                    const info = getInfoHandler(bytes).readInfo(bytes);
+                    embedded = info && info.find(e => e.key === 'resources');
+                } catch(_) { embedded = null; }
+
+                // 抽首帧的统一封装：抽完帧后回调 dataURL
+                // 注意：单帧/超短 WebM（MediaRecorder 产出常常 duration=Infinity）在
+                // loadeddata 里直接 seek 到 0.1s 后 seeked 不一定触发，会导致 loadMainImage
+                // 永远不调用、后续动作全断。这里改为按视频时长分派，并加 error/超时兜底，
+                // 保证 onFrame 一定会被调用一次。
+                const setupFrame = (onFrame) => {
+                    const video = document.createElement('video');
+                    const url = URL.createObjectURL(file);
+                    video.src = url;
+                    video.muted = true;
+                    video.playsInline = true;
+                    let done = false;
+                    const draw = () => {
+                        if (done) return;
+                        done = true;
+                        const w = video.videoWidth || 640, h = video.videoHeight || 360;
+                        const cvs = document.createElement('canvas');
+                        cvs.width = w; cvs.height = h;
+                        const ctx = cvs.getContext('2d');
+                        try { ctx.drawImage(video, 0, 0, w, h); } catch(e) { console.warn('drawImage 失败', e); }
+                        onFrame(cvs.toDataURL('image/jpeg', 0.9));
+                        URL.revokeObjectURL(url);
+                    };
+                    video.addEventListener('loadedmetadata', () => {
+                        const dur = (typeof video.duration === 'number' && isFinite(video.duration)) ? video.duration : 0;
+                        if (dur > 0.2) {
+                            // 多帧/正常视频：seek 到一个非黑帧
+                            video.addEventListener('seeked', draw, { once: true });
+                            try { video.currentTime = Math.min(0.1, dur * 0.5); } catch(e) { draw(); }
+                            // 兜底：seeked 不触发时超时强制抽首帧
+                            setTimeout(() => { if (!done) draw(); }, 1500);
+                        }
+                        // 单帧/超短视频走 loadeddata 分支直接抽首帧，不 seek
+                    }, { once: true });
+                    video.addEventListener('loadeddata', () => {
+                        const dur = (typeof video.duration === 'number' && isFinite(video.duration)) ? video.duration : 0;
+                        if (!(dur > 0.2)) draw(); // 单帧/短视频：直接取 currentTime=0 的帧
+                    }, { once: true });
+                    video.addEventListener('error', () => { if (!done) { console.warn('视频解码失败，使用兜底抽帧'); draw(); } }, { once: true });
+                    video.load();
                 };
-                video.load();
+
+                if (embedded) {
+                    // ===== 解码操作：视频本身含嵌入资源，还原到瀑布流 =====
+                    isVideoEmbedMode = false;
+                    setStatus('解码嵌入视频...');
+                    setupFrame((dataURL) => {
+                        loadMainImage(dataURL, null, () => {
+                            try {
+                                currentAttachments = JSON.parse(embedded.value);
+                                userHasModifiedResources = false;
+                                renderWaterfall();
+                                setStatus('已解码嵌入视频，恢复 ' + currentAttachments.length + ' 个资源');
+                            } catch(e) {
+                                console.error(e);
+                                setStatus('❌ 嵌入资源解析失败：' + (e && e.message ? e.message : e));
+                            }
+                        });
+                    });
+                } else {
+                    // ===== 嵌入操作：原视频作为主图来源，进入视频嵌入模式 =====
+                    isVideoEmbedMode = true;
+                    setStatus('提取视频帧（视频嵌入模式）...');
+                    setupFrame((dataURL) => {
+                        // 视频帧加载完成后触发回调
+                        loadMainImage(dataURL, null, onLoadComplete);
+                        currentAttachments = [];
+                        userHasModifiedResources = false; 
+                        processAttachments([file]); // 本视频原样放进资源瀑布流
+                    });
+                }
             } else if(file.type.startsWith('image/')) {
+                isVideoEmbedMode = false;
                 const r = new FileReader();
                 r.onload = (e) => {
                     loadMainImage(e.target.result, file, onLoadComplete);
@@ -1164,6 +2706,7 @@
                     const finishLoading = () => {
                         userHasModifiedResources = false;
                         setLoading(false);
+                        updateEmbedUI(); // 同步视频嵌入模式下的按钮文案/可用态
                         // 图片完全加载并处理完毕后，执行回调（用于手势延迟操作）
                         if (onComplete) onComplete();
                     };
@@ -1248,8 +2791,113 @@
             }, 50);
         }
 
+        // ============================================================
+        // 视频嵌入模式：把主图编码成「单帧视频 (MP4 或 WebM)」并嵌入资源瀑布流
+        // ============================================================
+
+        // 用浏览器内置 MediaRecorder + canvas.captureStream 把主图录制成「单帧（静止）视频」
+        // 不依赖任何第三方库（相比 mp4-muxer：去掉 CDN 加载，页面打开更快）
+        // 优先 MP4（写入 iTunes 风格 udta/meta，见 Mp4InfoHandler）；浏览器不支持 MP4 录制时退回 WebM
+        //（写入 Matroska Attachments，见 WebmInfoHandler）。两者接口一致，由 getInfoHandler 按容器分流。
+        async function encodeImageToSingleFrameMp4(sourceEl) {
+            if (typeof MediaRecorder === 'undefined') {
+                throw new Error('当前浏览器不支持 MediaRecorder（请用较新的 Chrome / Edge）');
+            }
+            const w = sourceEl.naturalWidth || sourceEl.width;
+            const h = sourceEl.naturalHeight || sourceEl.height;
+            if (!w || !h) throw new Error('无法获取主图尺寸');
+
+            // 挑选浏览器支持的录制格式：优先 MP4（写入 udta/meta），不支持则退回 WebM（写入 Matroska Attachments）
+            const supportedMimes = [
+                'video/mp4; codecs=avc1.42E01E,mp4a.40.2',
+                'video/mp4',
+                'video/webm; codecs=vp9',
+                'video/webm; codecs=vp8',
+                'video/webm'
+            ];
+            const mimeType = supportedMimes.find(t => MediaRecorder.isTypeSupported(t));
+            if (!mimeType) throw new Error('浏览器不支持任何可用的视频录制格式');
+            const container = mimeType.includes('mp4') ? 'mp4' : 'webm';
+
+            const cvs = document.createElement('canvas');
+            cvs.width = w; cvs.height = h;
+            cvs.getContext('2d').drawImage(sourceEl, 0, 0, w, h);
+
+            const stream = cvs.captureStream(30); // 高帧率确保录制能在极短时间内捕获到画面
+            const rec = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 3_000_000 });
+            const chunks = [];
+            rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+            const done = new Promise((resolve, reject) => {
+                rec.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+                rec.onerror = (e) => reject(e.error || new Error('录制失败'));
+            });
+
+            rec.start();
+            // MediaRecorder 靠真实时间推进捕获帧：等待足够时长再停止（约 6 帧 @30fps）
+            await new Promise(r => setTimeout(r, 200));
+            rec.stop();
+            const blob = await done;
+            const buffer = await blob.arrayBuffer();
+            return { buffer, container };
+        }
+
+        // 把当前资源瀑布流以 base64 嵌进单帧 MP4，并触发下载
+        async function downloadEmbedVideo() {
+            if (!displayImg.src) return;
+            setLoading(true);
+            setStatus('正在编码单帧视频并嵌入资源...');
+            try {
+                const enc = await encodeImageToSingleFrameMp4(displayImg);
+                let outBytes = new Uint8Array(enc.buffer);
+                if (currentAttachments.length > 0) {
+                    const payload = JSON.stringify(currentAttachments.map(a => ({
+                        type: a.type, mime: a.mime, data: a.data,
+                        keyword: a.keyword, filename: a.filename, size: a.size
+                    })));
+                    const handler = getInfoHandler(outBytes);
+                    outBytes = handler.writeInfo(outBytes, [{ key: 'resources', value: payload, type: 1 }]);
+                }
+                const isWebm = enc.container === 'webm';
+                const blob = new Blob([outBytes], { type: isWebm ? 'video/webm' : 'video/mp4' });
+                const url = URL.createObjectURL(blob);
+                const base = lastMainFileName ? lastMainFileName.replace(/\.[^.]+$/, '') : 'output';
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = base + '_embed.' + (isWebm ? 'webm' : 'mp4');
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                setStatus('已下载嵌入视频（含 ' + currentAttachments.length + ' 个资源）');
+            } catch (e) {
+                console.error(e);
+                setStatus('❌ 生成失败：' + (e && e.message ? e.message : e));
+            }
+            setLoading(false);
+        }
+
+        // 读取本工具生成的嵌入视频，把其中的 resources 还原到瀑布流
+        async function readEmbedVideo(file) {
+            if (!file) return;
+            try {
+                setStatus('读取嵌入视频...');
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                const info = getInfoHandler(bytes).readInfo(bytes);
+                const res = info && info.find(e => e.key === 'resources');
+                if (!res) { setStatus('该视频没有可读取的嵌入资源'); return; }
+                currentAttachments = JSON.parse(res.value);
+                userHasModifiedResources = false;
+                isVideoEmbedMode = false; // 解码后回到图片嵌入态
+                renderWaterfall();
+                updateEmbedUI();
+                setStatus('已读取 ' + currentAttachments.length + ' 个嵌入资源到瀑布流');
+            } catch (e) {
+                console.error(e);
+                setStatus('❌ 读取失败：' + (e && e.message ? e.message : e));
+            }
+        }
+
         // Smart Download Logic
         btnDownload.onclick = () => {
+            if (isVideoEmbedMode) { downloadEmbedVideo(); return; }
             if(!displayImg.src) return;
             setLoading(true);
             setStatus('正在打包资源并下载...');
@@ -1290,6 +2938,13 @@
                 r.readAsArrayBuffer(pngBlob);
             }, 'image/png');
         };
+
+        // 视频嵌入模式按钮
+        if (btnVembed) btnVembed.addEventListener('click', () => downloadEmbedVideo());
+        if (embedInput) embedInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) readEmbedVideo(e.target.files[0]);
+            e.target.value = ''; // 允许重复选择同一文件
+        });
 
         // --- MODAL LOGIC ---
         
@@ -1920,6 +3575,15 @@
             floatball();
             guidcss();
             loadBusuanzi();
+            let resizeTimer;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => {
+                    if (window.waterfallInstance) {
+                        window.waterfallInstance.handleResize();
+                    }
+                }, 200);
+            });
         });
 
 
