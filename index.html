@@ -574,13 +574,13 @@
             <div id="vembed-section" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
                 <div class="section-title">5. 视频嵌入模式</div>
                 <div style="font-size: 0.75rem; color: var(--text-sub); line-height: 1.5; margin-bottom: 8px;">
-                    拖入<strong>视频</strong>到主预览区即进入此模式：主图被编码为<strong>单帧视频（MP4 或 WebM）</strong>，资源瀑布流里的文件以 base64 嵌入其中，「下载」即导出该视频。
+                    把<strong>图片或视频</strong>拖入主预览区即可：「生成嵌入视频」会把主图编码为<strong>单帧视频（MP4 或 WebM）</strong>，资源瀑布流里的文件以 base64 嵌入其中并下载导出。
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 10px;">
                     <button id="btn-vembed" class="btn btn-primary" disabled>🎬 生成嵌入视频 (单帧视频)</button>
                     <label class="btn btn-secondary" style="position: relative;">
                         📂 读取嵌入视频
-                        <input type="file" id="embed-input" accept="video/mp4" style="position: absolute; inset: 0; opacity: 0; cursor: pointer;">
+                        <input type="file" id="embed-input" accept="video/mp4,video/webm" style="position: absolute; inset: 0; opacity: 0; cursor: pointer;">
                     </label>
                 </div>
             </div>
@@ -1992,11 +1992,12 @@
         function updateEmbedUI() {
             if (isVideoEmbedMode) {
                 btnDownload.textContent = '⬇️ 下载嵌入视频 (单帧视频)';
-                if (btnVembed) btnVembed.disabled = !displayImg.src;
             } else {
                 btnDownload.textContent = '⬇️ 下载结果 (含资源)';
-                if (btnVembed) btnVembed.disabled = true;
             }
+            // 生成嵌入视频按钮：只要有主预览图（图片或视频）就始终可点。
+            // 编码时取 displayImg 作为单帧视频的画面，因此用户拖入图片也能做成单帧视频。
+            if (btnVembed) btnVembed.disabled = !displayImg.src;
         }
 
         function updateOffsetFromSlider() {
@@ -2799,6 +2800,212 @@
         // 不依赖任何第三方库（相比 mp4-muxer：去掉 CDN 加载，页面打开更快）
         // 优先 MP4（写入 iTunes 风格 udta/meta，见 Mp4InfoHandler）；浏览器不支持 MP4 录制时退回 WebM
         //（写入 Matroska Attachments，见 WebmInfoHandler）。两者接口一致，由 getInfoHandler 按容器分流。
+
+        /* === MP4_REMUX_START ===
+         * normalizeFragmentedMp4：把浏览器 MediaRecorder 产出的「分片 MP4 (fMP4)」重封装为
+         * 带顶层 moov 的标准 MP4（faststart：moov 在 mdat 之前），让 Mp4InfoHandler.writeInfo
+         * 能定位 moov 并写入 udta 资源槽。
+         * 思路：fMP4 无顶层 moov，样本数据在 mdat（每片段一个 moof+mdat，mdat 内即样本字节流），
+         * 样本流是「长度前缀的 NAL」且 in-band 携带 SPS/PPS。据此重建 avcC + moov。
+         * 不依赖任何第三方库。
+         */
+        function rmxU32(n) { const a = new Uint8Array(4); new DataView(a.buffer).setUint32(0, n >>> 0, false); return a; }
+        function rmxU16(n) { const a = new Uint8Array(2); new DataView(a.buffer).setUint16(0, n & 0xffff, false); return a; }
+        function rmxU8(n) { return new Uint8Array([n & 0xff]); }
+        function rmxAscii(s) { return new TextEncoder().encode(s); }
+        function rmxConcat(arrs) { let t = 0; for (const a of arrs) t += a.length; const o = new Uint8Array(t); let off = 0; for (const a of arrs) { o.set(a, off); off += a.length; } return o; }
+        function rmxBox(type, payload) {
+            const b = new Uint8Array(8 + payload.length);
+            new DataView(b.buffer).setUint32(0, 8 + payload.length, false);
+            b[4] = type.charCodeAt(0); b[5] = type.charCodeAt(1); b[6] = type.charCodeAt(2); b[7] = type.charCodeAt(3);
+            b.set(payload, 8); return b;
+        }
+        function rmxFullBox(type, version, flags, payload) {
+            return rmxBox(type, rmxConcat([rmxU32(((version & 0xff) << 24) | (flags & 0xffffff)), payload]));
+        }
+        const RMX_MATRIX = (() => { const m = new Uint8Array(36); const v = new DataView(m.buffer); v.setUint32(0, 0x00010000); v.setUint32(20, 0x00010000); v.setUint32(32, 0x40000000); return m; })();
+        function rmxFindBox(bytes, start, end, name) {
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            let p = start;
+            while (p + 8 <= end) {
+                const size = view.getUint32(p, false);
+                const nm = String.fromCharCode(bytes[p+4], bytes[p+5], bytes[p+6], bytes[p+7]);
+                if (size < 8) break;
+                if (nm === name) return { pos: p, size };
+                p += size;
+            }
+            return null;
+        }
+        // 从长度前缀 NAL 流中提取 SPS(7)/PPS(8)；依次尝试 4/2/1 字节长度前缀
+        function rmxExtractParamSets(stream) {
+            for (const L of [4, 2, 1]) {
+                let pos = 0, sps = null, pps = null;
+                try {
+                    while (pos + L <= stream.length) {
+                        let len = 0;
+                        if (L === 4) len = (stream[pos] << 24) | (stream[pos+1] << 16) | (stream[pos+2] << 8) | stream[pos+3];
+                        else if (L === 2) len = (stream[pos] << 8) | stream[pos+1];
+                        else len = stream[pos];
+                        if (len <= 0 || pos + L + len > stream.length) break;
+                        const nalType = stream[pos + L] & 0x1f;
+                        const nal = stream.subarray(pos + L, pos + L + len);
+                        if (nalType === 7) sps = nal; else if (nalType === 8) pps = nal;
+                        pos += L + len;
+                    }
+                } catch (e) { sps = pps = null; }
+                if (sps && pps) return { sps, pps };
+            }
+            return null;
+        }
+        function rmxBuildAvcC(sps, pps) {
+            return rmxBox('avcC', rmxConcat([
+                rmxU8(1), rmxU8(sps[1]), rmxU8(sps[2]), rmxU8(sps[3]),
+                rmxU8(0xff), rmxU8(0xe1),
+                rmxU16(sps.length), sps, rmxU8(1), rmxU16(pps.length), pps
+            ]));
+        }
+        function rmxBuildAvc1(w, h, avcC) {
+            const payload = rmxConcat([
+                new Uint8Array(6), rmxU16(1), rmxU16(0), rmxU16(0), new Uint8Array(12),
+                rmxU16(w), rmxU16(h), rmxU32(0x00480000), rmxU32(0x00480000), rmxU32(0),
+                rmxU16(1), new Uint8Array(32), rmxU16(0x0018), rmxU16(0xffff), avcC
+            ]);
+            return rmxBox('avc1', payload);
+        }
+        // 解析一个 moof，返回其 traf 中首个 trun 的样本大小/时长
+        function rmxParseMoof(bytes, start, end) {
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            let p = start + 8;
+            let sizes = [], durs = [];
+            while (p + 8 <= end) {
+                const sz = view.getUint32(p, false);
+                const ty = String.fromCharCode(bytes[p+4], bytes[p+5], bytes[p+6], bytes[p+7]);
+                const childEnd = p + sz;
+                if (ty === 'traf') {
+                    let q = p + 8;
+                    while (q + 8 <= childEnd) {
+                        const csz = view.getUint32(q, false);
+                        const cty = String.fromCharCode(bytes[q+4], bytes[q+5], bytes[q+6], bytes[q+7]);
+                        const cEnd = q + csz;
+                        if (cty === 'trun') {
+                            const flags = (bytes[q+9] << 16) | (bytes[q+10] << 8) | bytes[q+11];
+                            let o = q + 12;
+                            if (flags & 0x000001) o += 4; // data-offset-present
+                            if (flags & 0x000004) o += 4; // first-sample-flags-present
+                            const count = view.getUint32(o, false); o += 4;
+                            for (let i = 0; i < count; i++) {
+                                let dur = 0, cs = 0;
+                                if (flags & 0x000100) { dur = view.getUint32(o, false); o += 4; }
+                                if (flags & 0x000200) { cs = view.getUint32(o, false); o += 4; }
+                                if (flags & 0x000400) o += 4;
+                                if (flags & 0x000800) o += 4;
+                                sizes.push(cs); durs.push(dur);
+                            }
+                        }
+                        q += csz;
+                    }
+                }
+                p += sz;
+            }
+            return { sizes, durs };
+        }
+        function normalizeFragmentedMp4(bytes, width, height) {
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            let ftyp = null; const segments = []; let firstMoovPos = -1; let pos = 0;
+            while (pos + 8 <= bytes.length) {
+                const size = view.getUint32(pos, false);
+                const type = String.fromCharCode(bytes[pos+4], bytes[pos+5], bytes[pos+6], bytes[pos+7]);
+                if (size < 8) break;
+                if (type === 'ftyp') ftyp = bytes.subarray(pos, pos + size);
+                else if (type === 'moov') { firstMoovPos = pos; break; }
+                else if (type === 'moof') {
+                    const moofEnd = pos + size;
+                    const { sizes, durs } = rmxParseMoof(bytes, pos, moofEnd);
+                    let mpos = moofEnd;
+                    if (mpos + 8 <= bytes.length) {
+                        const ms = view.getUint32(mpos, false);
+                        const mt = String.fromCharCode(bytes[mpos+4], bytes[mpos+5], bytes[mpos+6], bytes[mpos+7]);
+                        if (mt === 'mdat') segments.push({ mdatPos: mpos, mdatSize: ms, sampleSizes: sizes, sampleDurations: durs });
+                    }
+                }
+                pos += size;
+            }
+            if (firstMoovPos >= 0) return null; // 已是非分片 MP4，无需重封装
+            if (!segments.length) throw new Error('无效的 MP4：缺少 moov 且无法解析分片(moof/mdat)');
+            const allSamples = [];
+            for (const seg of segments) {
+                let pp = seg.mdatPos + 8; const end = seg.mdatPos + seg.mdatSize;
+                const ss = seg.sampleSizes.length ? seg.sampleSizes : [ end - pp ];
+                for (const sz of ss) { if (pp + sz > end) break; allSamples.push(bytes.subarray(pp, pp + sz)); pp += sz; }
+            }
+            if (!allSamples.length) throw new Error('无效的 MP4：未找到可嵌入的样本数据');
+            const mdatData = rmxConcat(allSamples);
+            const ps = rmxExtractParamSets(mdatData);
+            if (!ps) throw new Error('无法从视频帧提取 H.264 SPS/PPS（请改用 WebM 嵌入）');
+            const w = width || 1280, h = height || 720;
+            const avcC = rmxBuildAvcC(ps.sps, ps.pps);
+            const avc1 = rmxBuildAvc1(w, h, avcC);
+            const stsd = rmxFullBox('stsd', 0, 0, rmxConcat([rmxU32(1), avc1]));
+            const n = allSamples.length;
+            const stts = rmxFullBox('stts', 0, 0, rmxConcat([rmxU32(1), rmxU32(n), rmxU32(1000)]));
+            const stsc = rmxFullBox('stsc', 0, 0, rmxConcat([rmxU32(1), rmxU32(1), rmxU32(n), rmxU32(1)]));
+            const stszParts = [rmxU32(0), rmxU32(n)]; for (const s of allSamples) stszParts.push(rmxU32(s.length));
+            const stsz = rmxFullBox('stsz', 0, 0, rmxConcat(stszParts));
+            const vmhd = rmxFullBox('vmhd', 0, 1, rmxConcat([rmxU16(0), rmxU16(0), rmxU16(0), rmxU16(0)]));
+            const urlBox = rmxFullBox('url ', 0, 1, new Uint8Array(0));
+            const dref = rmxFullBox('dref', 0, 0, rmxConcat([rmxU32(1), urlBox]));
+            const dinf = rmxBox('dinf', dref);
+            const mvhd = rmxFullBox('mvhd', 0, 0, rmxConcat([rmxU32(0), rmxU32(0), rmxU32(1000), rmxU32(n * 1000), rmxU32(0x00010000), rmxU16(0x0100), rmxU16(0), rmxU32(0), rmxU32(0), RMX_MATRIX, rmxU32(0), rmxU32(2)]));
+            const tkhd = rmxFullBox('tkhd', 0, 0x000007, rmxConcat([rmxU32(0), rmxU32(0), rmxU32(1), rmxU32(0), rmxU32(n * 1000), rmxU32(0), rmxU32(0), rmxU16(0), rmxU16(0), rmxU16(0), rmxU16(0), RMX_MATRIX, rmxU32(w << 16), rmxU32(h << 16)]));
+            const mdhd = rmxFullBox('mdhd', 0, 0, rmxConcat([rmxU32(0), rmxU32(0), rmxU32(1000), rmxU32(n * 1000), rmxU16(0x55C4), rmxU16(0)]));
+            const hdlr = rmxFullBox('hdlr', 0, 0, rmxConcat([rmxU32(0), rmxAscii('vide'), new Uint8Array(12), rmxAscii('VideoHandler\u0000')]));
+            const stbl1 = rmxBox('stbl', rmxConcat([stsd, stts, stsc, stsz]));
+            const minf1 = rmxBox('minf', rmxConcat([vmhd, dinf, stbl1]));
+            const mdia1 = rmxBox('mdia', rmxConcat([mdhd, hdlr, minf1]));
+            const trak1 = rmxBox('trak', rmxConcat([tkhd, mdia1]));
+            const moov1 = rmxBox('moov', rmxConcat([mvhd, trak1]));
+            const stco = rmxFullBox('stco', 0, 0, rmxConcat([rmxU32(1), rmxU32(0)]));
+            // 最终 moov = moov1 + stco 盒子，mdat 起点需把 stco 长度计入
+            const mdatStart = (ftyp ? ftyp.length : 0) + moov1.length + stco.length + 8;
+            const stcoFinal = rmxFullBox('stco', 0, 0, rmxConcat([rmxU32(1), rmxU32(mdatStart)]));
+            const stbl = rmxBox('stbl', rmxConcat([stsd, stts, stsc, stsz, stcoFinal]));
+            const minf = rmxBox('minf', rmxConcat([vmhd, dinf, stbl]));
+            const mdia = rmxBox('mdia', rmxConcat([mdhd, hdlr, minf]));
+            const trak = rmxBox('trak', rmxConcat([tkhd, mdia]));
+            const moov = rmxBox('moov', rmxConcat([mvhd, trak]));
+            const mdat = rmxBox('mdat', mdatData);
+            const head = ftyp ? rmxConcat([ftyp, moov, mdat]) : rmxConcat([moov, mdat]);
+            return head;
+        }
+        // writeInfo 把 udta 写进 moov 会让 moov 变大；若 moov 在 mdat 之前，mdat 后移，
+        // 需把 stco 的样本偏移同步加上这个增量，否则播放错位。
+        function rmxBumpChunkOffsets(bytes, delta) {
+            if (!delta) return bytes;
+            const moov = rmxFindBox(bytes, 0, bytes.length, 'moov');
+            if (!moov) return bytes;
+            const trak = rmxFindBox(bytes, moov.pos + 8, moov.pos + moov.size, 'trak');
+            if (!trak) return bytes;
+            const mdia = rmxFindBox(bytes, trak.pos + 8, trak.pos + trak.size, 'mdia');
+            if (!mdia) return bytes;
+            const minf = rmxFindBox(bytes, mdia.pos + 8, mdia.pos + mdia.size, 'minf');
+            if (!minf) return bytes;
+            const stbl = rmxFindBox(bytes, minf.pos + 8, minf.pos + minf.size, 'stbl');
+            if (!stbl) return bytes;
+            const co = rmxFindBox(bytes, stbl.pos + 8, stbl.pos + stbl.size, 'stco');
+            if (!co) return bytes;
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            const cnt = view.getUint32(co.pos + 12, false);
+            for (let i = 0; i < cnt; i++) view.setUint32(co.pos + 16 + 4 * i, (view.getUint32(co.pos + 16 + 4 * i, false) + delta) >>> 0, false);
+            return bytes;
+        }
+        function rmxMoovBeforeMdat(bytes) {
+            const moov = rmxFindBox(bytes, 0, bytes.length, 'moov');
+            const mdat = rmxFindBox(bytes, 0, bytes.length, 'mdat');
+            if (!moov || !mdat) return false;
+            return moov.pos < mdat.pos;
+        }
+        /* === MP4_REMUX_END === */
+
         async function encodeImageToSingleFrameMp4(sourceEl) {
             if (typeof MediaRecorder === 'undefined') {
                 throw new Error('当前浏览器不支持 MediaRecorder（请用较新的 Chrome / Edge）');
@@ -2807,36 +3014,78 @@
             const h = sourceEl.naturalHeight || sourceEl.height;
             if (!w || !h) throw new Error('无法获取主图尺寸');
 
-            // 挑选浏览器支持的录制格式：优先 MP4（写入 udta/meta），不支持则退回 WebM（写入 Matroska Attachments）
+            // mime 优先级：优先 MP4（写入 udta/meta），不支持则退回 WebM（Matroska Attachments）。
+            // 第一项带音频 codec：在 Edge(Chromium) 下 isTypeSupported 返回 true 且能正常产出视频——
+            // 画布流是纯视频（无音轨），浏览器仅录视频，音频 codec 无害（同目录 webp-gif 工具已验证）。
             const supportedMimes = [
-                'video/mp4; codecs=avc1.42E01E,mp4a.40.2',
+                'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
                 'video/mp4',
-                'video/webm; codecs=vp9',
-                'video/webm; codecs=vp8',
+                'video/webm;codecs=vp9',
+                'video/webm;codecs=vp8',
                 'video/webm'
             ];
-            const mimeType = supportedMimes.find(t => MediaRecorder.isTypeSupported(t));
-            if (!mimeType) throw new Error('浏览器不支持任何可用的视频录制格式');
-            const container = mimeType.includes('mp4') ? 'mp4' : 'webm';
+            const preferredMime = supportedMimes.find(t => {
+                try { return MediaRecorder.isTypeSupported(t); } catch (_) { return false; }
+            });
+            if (!preferredMime) throw new Error('浏览器不支持任何可用的视频录制格式');
 
             const cvs = document.createElement('canvas');
             cvs.width = w; cvs.height = h;
-            cvs.getContext('2d').drawImage(sourceEl, 0, 0, w, h);
+            const ctx = cvs.getContext('2d');
 
-            const stream = cvs.captureStream(30); // 高帧率确保录制能在极短时间内捕获到画面
-            const rec = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 3_000_000 });
+            // 录制帧率用低速 2fps：用户实测同目录 webp-gif 工具以「2fps + 2 张相同图(1 张复制而成)」成功生成 MP4，
+            // 说明关键是「低速 + 真实时间间隔绘制 ≥2 帧」，而非帧内容差异。本函数复用同一节奏。
+            const FPS = 2;
+            const stream = cvs.captureStream(FPS);
+
+            // 个别浏览器 isTypeSupported 返回 true 但构造 MediaRecorder 时拒绝（如音频 codec 与纯视频流不匹配），
+            // 故按「优先 mime → 纯 mp4/webm → webm」依次尝试构造。
+            const tryMimes = [preferredMime,
+                preferredMime.includes('mp4') ? 'video/mp4' : 'video/webm',
+                'video/webm'];
+            let rec = null, usedMime = null;
+            for (const mt of tryMimes) {
+                try { rec = new MediaRecorder(stream, { mimeType: mt, videoBitsPerSecond: 3_000_000 }); usedMime = mt; break; }
+                catch (_) {}
+            }
+            if (!rec) throw new Error('浏览器无法创建 MediaRecorder');
+            const container = usedMime.includes('mp4') ? 'mp4' : 'webm';
+
             const chunks = [];
             rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
             const done = new Promise((resolve, reject) => {
-                rec.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+                rec.onstop = () => resolve(new Blob(chunks, { type: usedMime }));
                 rec.onerror = (e) => reject(e.error || new Error('录制失败'));
             });
 
-            rec.start();
-            // MediaRecorder 靠真实时间推进捕获帧：等待足够时长再停止（约 6 帧 @30fps）
-            await new Promise(r => setTimeout(r, 200));
+            rec.start(100); // timeslice 周期性触发 dataavailable
+
+            // rAF 绘制循环：按真实时间间隔（1000/FPS）绘制 ≥2 帧同一张图。
+            // 用户实测：webp-gif 工具以「1 张图复制成 2 张一模一样的图、2fps」成功生成 MP4，
+            // 故本工具同样画相同内容即可——第 1 帧是干净原图（=下游抽取的首帧，原图无损），
+            // 之后每隔 interval 再画一次，确保编码器拿到 ≥2 个样本并写出合法流（不靠像素差异）。
+            const MIN_FRAMES = 3;        // ≥2 帧留余量（webp-gif 验证 2 帧即可）
+            const interval = 1000 / FPS; // 2fps → 500ms
+            let rendered = 0;
+            let lastDraw = performance.now();
+            await new Promise((resolve) => {
+                function frame(now) {
+                    if (rendered === 0 || now - lastDraw >= interval) {
+                        ctx.drawImage(sourceEl, 0, 0, w, h); // 每帧都画干净原图（相同内容）
+                        rendered++;
+                        lastDraw = now;
+                    }
+                    if (rendered < MIN_FRAMES) requestAnimationFrame(frame);
+                    else resolve();
+                }
+                requestAnimationFrame(frame);
+            });
+
             rec.stop();
             const blob = await done;
+            if (!blob || blob.size === 0) {
+                throw new Error('录制产出为空（浏览器未返回任何视频数据）：请用 Chrome/Edge 录制 MP4，或 Firefox/Safari 录制 WebM');
+            }
             const buffer = await blob.arrayBuffer();
             return { buffer, container };
         }
@@ -2849,15 +3098,38 @@
             try {
                 const enc = await encodeImageToSingleFrameMp4(displayImg);
                 let outBytes = new Uint8Array(enc.buffer);
+                // 以真实字节头（魔术字）判定容器：浏览器（部分 Chrome/Edge、Safari 版本）可能在声明 mp4 时
+                // 实际产出 WebM；若轻信请求的 mimeType 去重封装，会报“缺少 moov 且无法解析分片”。故统一按字节分流。
+                const looksWebm = outBytes.length >= 4
+                    && outBytes[0] === 0x1A && outBytes[1] === 0x45 && outBytes[2] === 0xDF && outBytes[3] === 0xA3;
+                const looksMp4 = !looksWebm && outBytes.length >= 12
+                    && String.fromCharCode(outBytes[4], outBytes[5], outBytes[6], outBytes[7]) === 'ftyp';
+                if (looksMp4) {
+                    // 分片 MP4 没有顶层 moov，Mp4InfoHandler 无法写入资源；先重封装成带 moov 的标准 MP4
+                    const w = displayImg.naturalWidth || displayImg.width || 0;
+                    const h = displayImg.naturalHeight || displayImg.height || 0;
+                    const normalized = normalizeFragmentedMp4(outBytes, w, h);
+                    if (normalized) outBytes = normalized;
+                } else if (!looksWebm) {
+                    const head = Array.from(outBytes.subarray(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+                    throw new Error('无法识别录制的视频容器（前 16 字节: ' + head + '），请用 Chrome/Edge 录制 MP4 或 Firefox/Safari 录制 WebM');
+                }
+                const isWebm = looksWebm;
                 if (currentAttachments.length > 0) {
                     const payload = JSON.stringify(currentAttachments.map(a => ({
                         type: a.type, mime: a.mime, data: a.data,
                         keyword: a.keyword, filename: a.filename, size: a.size
                     })));
                     const handler = getInfoHandler(outBytes);
+                    const before = outBytes.length;
                     outBytes = handler.writeInfo(outBytes, [{ key: 'resources', value: payload, type: 1 }]);
+                    // moov 在 mdat 之前时，写入 udta 让 moov 变大、mdat 后移，需同步 stco 偏移
+                    if (rmxMoovBeforeMdat(outBytes)) {
+                        const delta = outBytes.length - before;
+                        if (delta) outBytes = rmxBumpChunkOffsets(outBytes, delta);
+                    }
                 }
-                const isWebm = enc.container === 'webm';
+                // isWebm 已按真实字节头（looksWebm）在上文判定，不再依赖 enc.container
                 const blob = new Blob([outBytes], { type: isWebm ? 'video/webm' : 'video/mp4' });
                 const url = URL.createObjectURL(blob);
                 const base = lastMainFileName ? lastMainFileName.replace(/\.[^.]+$/, '') : 'output';
